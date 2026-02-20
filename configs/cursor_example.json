@@ -1,0 +1,10 @@
+{
+  "_comment": "Cursor MCP configuration with mcp-watchdog proxy.",
+  "mcpServers": {
+    "mcp-watchdog": {
+      "command": "mcp-watchdog",
+      "args": ["--verbose"],
+      "env": {}
+    }
+  }
+}
