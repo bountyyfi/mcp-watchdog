@@ -1,10 +1,12 @@
-"""Cross-server information flow tracking for Thanatos Layer 3.
+"""Cross-server information flow tracking for Thanatos Layer 3 + session integrity.
 
 Tracks tokens/data from one MCP server's responses and detects when
 they appear in requests to a different server, indicating cross-server
-data propagation attacks.
+data propagation attacks. Also tracks session message sequences to
+detect agent session smuggling (A2A injection attacks).
 """
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -25,10 +27,25 @@ class FlowAlert:
     )
 
 
+@dataclass
+class SessionAlert:
+    reason: str
+    server_id: str
+    detail: str
+    severity: str = "critical"
+    timestamp: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
+
+
 class FlowTracker:
     def __init__(self, window_size: int = 100) -> None:
         self._response_tokens: dict[str, set[str]] = defaultdict(set)
         self._window_size = window_size
+        # Session integrity: server_id -> list of (request_id, request_hash)
+        self._pending_requests: dict[str, dict[int, str]] = defaultdict(dict)
+        # Message sequence tracking
+        self._sequence: dict[str, int] = defaultdict(int)
 
     def record_response(self, server_id: str, content: str) -> None:
         tokens = set(TOKEN_PATTERN.findall(content))
@@ -60,5 +77,32 @@ class FlowTracker:
                         severity="high",
                     )
                 )
+
+        return alerts
+
+    def track_request(self, server_id: str, request_id: int, content: str) -> None:
+        h = hashlib.sha256(content.encode()).hexdigest()[:16]
+        self._pending_requests[server_id][request_id] = h
+        self._sequence[server_id] += 1
+
+    def check_response_integrity(
+        self, server_id: str, request_id: int, content: str
+    ) -> list[SessionAlert]:
+        alerts: list[SessionAlert] = []
+        pending = self._pending_requests.get(server_id, {})
+
+        if request_id not in pending:
+            alerts.append(
+                SessionAlert(
+                    reason="orphaned_response",
+                    server_id=server_id,
+                    detail=(
+                        f"Response for request_id={request_id} has no "
+                        f"matching tracked request (possible session smuggling)"
+                    ),
+                )
+            )
+        else:
+            del pending[request_id]
 
         return alerts
