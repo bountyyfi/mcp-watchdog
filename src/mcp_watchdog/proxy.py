@@ -20,6 +20,7 @@ from mcp_watchdog.url_filter import URLFilter
 from mcp_watchdog.input_sanitizer import InputSanitizer
 from mcp_watchdog.registry_checker import RegistryChecker
 from mcp_watchdog.oauth_guard import OAuthGuard
+from mcp_watchdog.tool_shadow import ToolShadowDetector
 from mcp_watchdog.alerts import WatchdogAlert, print_alert
 
 
@@ -35,6 +36,7 @@ class MCPWatchdogProxy:
         self.input_sanitizer = InputSanitizer()
         self.registry_checker = RegistryChecker()
         self.oauth_guard = OAuthGuard()
+        self.tool_shadow = ToolShadowDetector()
         # Per-server context isolation (A10)
         self._server_contexts: dict[str, list[str]] = {}
         self.verbose = verbose
@@ -147,6 +149,21 @@ class MCPWatchdogProxy:
                         all_alerts,
                     )
 
+                # Tool shadowing / name squatting / preference manipulation
+                shadow_alerts = self.tool_shadow.check_tools(
+                    server_id, tools
+                )
+                for sha in shadow_alerts:
+                    self._emit(
+                        WatchdogAlert(
+                            severity=sha.severity,
+                            server_id=server_id,
+                            rule="SHADOW",
+                            detail=sha.detail,
+                        ),
+                        all_alerts,
+                    )
+
                 # Tool description injection scan
                 for tool in tools:
                     desc = tool.get("description", "")
@@ -193,6 +210,21 @@ class MCPWatchdogProxy:
 
         except (json.JSONDecodeError, AttributeError):
             pass
+
+        # False-error escalation check on response content
+        escalation_alerts = self.tool_shadow.check_response_for_escalation(
+            server_id, cleaned
+        )
+        for esc in escalation_alerts:
+            self._emit(
+                WatchdogAlert(
+                    severity=esc.severity,
+                    server_id=server_id,
+                    rule="ESCALATION",
+                    detail=esc.detail,
+                ),
+                all_alerts,
+            )
 
         # Context isolation (A10) - track per-server
         if server_id not in self._server_contexts:
@@ -252,12 +284,32 @@ class MCPWatchdogProxy:
                         server_id, tool_name, arguments
                     )
                     for ia in inj_alerts:
+                        rule = "CMD-INJECT"
+                        if ia.reason == "sql_injection":
+                            rule = "SQL-INJECT"
+                        elif ia.reason == "reverse_shell":
+                            rule = "REVERSE-SHELL"
                         self._emit(
                             WatchdogAlert(
                                 severity=ia.severity,
                                 server_id=server_id,
-                                rule="CMD-INJECT",
+                                rule=rule,
                                 detail=ia.detail,
+                            ),
+                            all_alerts,
+                        )
+
+                    # Email header injection check
+                    email_alerts = self.tool_shadow.check_email_injection(
+                        server_id, tool_name, arguments
+                    )
+                    for ema in email_alerts:
+                        self._emit(
+                            WatchdogAlert(
+                                severity=ema.severity,
+                                server_id=server_id,
+                                rule="EMAIL-INJECT",
+                                detail=ema.detail,
                             ),
                             all_alerts,
                         )

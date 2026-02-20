@@ -41,7 +41,20 @@ class FilesystemScopeEnforcer:
         self.allowed_paths = [Path(p).resolve() for p in allowed_paths]
 
     def check_write(self, path: str) -> ScopeViolation | None:
-        resolved = Path(path).resolve()
+        target = Path(path)
+
+        # Detect symlink escape attacks
+        if target.is_symlink():
+            real_target = target.resolve()
+            if str(real_target) != str(target.resolve()):
+                return ScopeViolation(
+                    reason="symlink_escape",
+                    server_id=self.server_id,
+                    path=path,
+                    severity="critical",
+                )
+
+        resolved = target.resolve()
         path_str = str(resolved)
 
         # Check against always-blocked paths
