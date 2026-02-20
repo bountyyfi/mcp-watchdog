@@ -194,7 +194,7 @@ class MCPWatchdogProxy:
         except (json.JSONDecodeError, AttributeError):
             pass
 
-        # Context isolation (A10) — track per-server
+        # Context isolation (A10) - track per-server
         if server_id not in self._server_contexts:
             self._server_contexts[server_id] = []
         self._server_contexts[server_id].append(cleaned[:200])

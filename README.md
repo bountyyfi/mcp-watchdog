@@ -2,7 +2,7 @@
 
 MCP security proxy that sits between AI coding assistants and MCP servers, detecting and blocking all known MCP attack classes.
 
-Catches **Rug Pulls**, **Tool Poisoning**, **Parameter Injection**, **SSRF**, **Command Injection**, **Supply Chain Impersonation**, **Token Leakage**, **OAuth Confused Deputy**, **Session Smuggling**, **Context Leakage**, **MCP Parasite**, **Thanatos** (all 4 layers), and **SANDWORM_MODE**-style prompt injection — before any of it reaches your AI assistant.
+Catches **Rug Pulls**, **Tool Poisoning**, **Parameter Injection**, **SSRF**, **Command Injection**, **Supply Chain Impersonation**, **Token Leakage**, **OAuth Confused Deputy**, **Session Smuggling**, **Context Leakage**, **MCP Parasite**, **Thanatos** (all 4 layers), and **SANDWORM_MODE**-style prompt injection - before any of it reaches your AI assistant.
 
 ## Why this exists
 
@@ -19,7 +19,7 @@ MCP (Model Context Protocol) servers have full access to your AI assistant's con
 - **Inject messages into sessions** via agent session smuggling (A2A attacks)
 - **Profile your behavior** by collecting commit timestamps, deploy windows, and activity patterns
 - **Encode payloads steganographically** inside normal-looking JSON responses
-- **Propagate across servers** — output from Server A influences calls to Server B
+- **Propagate across servers** - output from Server A influences calls to Server B
 - **Persist across sessions** by writing state to project files outside declared scope
 
 mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection before any data reaches your AI model.
@@ -168,7 +168,7 @@ AI Assistant <-> mcp-watchdog proxy <-> MCP Server(s)
                       └── Scope enforcer (filesystem)
 ```
 
-mcp-watchdog is a transparent JSON-RPC proxy. It does not modify clean responses — only strips malicious content and raises alerts.
+mcp-watchdog is a transparent JSON-RPC proxy. It does not modify clean responses - only strips malicious content and raises alerts.
 
 ## License
 
@@ -179,11 +179,11 @@ MIT
 Open source by [Bountyy Oy](https://github.com/bountyyfi).
 
 Research references:
-- [Invariant Labs — Tool Poisoning & Rug Pull Attacks](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks)
-- [HiddenLayer — Parameter Injection](https://hiddenlayer.com/innovation-hub/exploiting-mcp-tool-parameters/)
-- [BlueRock — MCP fURI SSRF](https://www.bluerock.io/post/mcp-furi-microsoft-markitdown-vulnerabilities)
-- [Unit 42 — MCP Sampling Attacks](https://unit42.paloaltonetworks.com/model-context-protocol-attack-vectors/)
+- [Invariant Labs - Tool Poisoning & Rug Pull Attacks](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks)
+- [HiddenLayer - Parameter Injection](https://hiddenlayer.com/innovation-hub/exploiting-mcp-tool-parameters/)
+- [BlueRock - MCP fURI SSRF](https://www.bluerock.io/post/mcp-furi-microsoft-markitdown-vulnerabilities)
+- [Unit 42 - MCP Sampling Attacks](https://unit42.paloaltonetworks.com/model-context-protocol-attack-vectors/)
 - [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/)
-- [Docker — MCP Supply Chain Horror Stories](https://www.docker.com/blog/mcp-horror-stories-the-supply-chain-attack/)
-- [Elastic Security Labs — MCP Attack Vectors](https://www.elastic.co/security-labs/mcp-tools-attack-defense-recommendations)
-- [Pillar Security — MCP Risks](https://www.pillar.security/blog/the-security-risks-of-model-context-protocol-mcp)
+- [Docker - MCP Supply Chain Horror Stories](https://www.docker.com/blog/mcp-horror-stories-the-supply-chain-attack/)
+- [Elastic Security Labs - MCP Attack Vectors](https://www.elastic.co/security-labs/mcp-tools-attack-defense-recommendations)
+- [Pillar Security - MCP Risks](https://www.pillar.security/blog/the-security-risks-of-model-context-protocol-mcp)
