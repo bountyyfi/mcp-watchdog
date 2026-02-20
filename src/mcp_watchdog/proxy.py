@@ -21,6 +21,7 @@ from mcp_watchdog.input_sanitizer import InputSanitizer
 from mcp_watchdog.registry_checker import RegistryChecker
 from mcp_watchdog.oauth_guard import OAuthGuard
 from mcp_watchdog.tool_shadow import ToolShadowDetector
+from mcp_watchdog.rate_limiter import RateLimiter
 from mcp_watchdog.alerts import WatchdogAlert, print_alert
 
 
@@ -37,6 +38,7 @@ class MCPWatchdogProxy:
         self.registry_checker = RegistryChecker()
         self.oauth_guard = OAuthGuard()
         self.tool_shadow = ToolShadowDetector()
+        self.rate_limiter = RateLimiter()
         # Per-server context isolation (A10)
         self._server_contexts: dict[str, list[str]] = {}
         self.verbose = verbose
@@ -77,14 +79,15 @@ class MCPWatchdogProxy:
                 all_alerts,
             )
 
-        # SSRF detection in response content
+        # SSRF + exfiltration detection in response content
         ssrf_alerts = self.url_filter.scan_content(cleaned, server_id)
         for sa in ssrf_alerts:
+            rule = "EXFIL" if sa.reason == "url_exfiltration" else "SSRF"
             self._emit(
                 WatchdogAlert(
                     severity=sa.severity,
                     server_id=server_id,
-                    rule="SSRF",
+                    rule=rule,
                     detail=sa.detail,
                 ),
                 all_alerts,
@@ -208,6 +211,22 @@ class MCPWatchdogProxy:
                     all_alerts,
                 )
 
+            # Notification event injection check
+            if method.startswith("notifications/"):
+                notif_alerts = self.rate_limiter.check_notification(
+                    server_id, method
+                )
+                for na in notif_alerts:
+                    self._emit(
+                        WatchdogAlert(
+                            severity=na.severity,
+                            server_id=server_id,
+                            rule="NOTIF-INJECT",
+                            detail=na.detail,
+                        ),
+                        all_alerts,
+                    )
+
         except (json.JSONDecodeError, AttributeError):
             pass
 
@@ -251,14 +270,15 @@ class MCPWatchdogProxy:
                 all_alerts,
             )
 
-        # SSRF check on outgoing requests
+        # SSRF + exfiltration check on outgoing requests
         ssrf_alerts = self.url_filter.scan_content(raw, server_id)
         for sa in ssrf_alerts:
+            rule = "EXFIL" if sa.reason == "url_exfiltration" else "SSRF"
             self._emit(
                 WatchdogAlert(
                     severity=sa.severity,
                     server_id=server_id,
-                    rule="SSRF",
+                    rule=rule,
                     detail=sa.detail,
                 ),
                 all_alerts,
@@ -274,6 +294,20 @@ class MCPWatchdogProxy:
             # Track request for session integrity (A9)
             if request_id is not None:
                 self.flow.track_request(server_id, request_id, raw)
+
+            # Rate limiting / consent fatigue check
+            if method == "tools/call":
+                rate_alerts = self.rate_limiter.record_tool_call(server_id)
+                for ra in rate_alerts:
+                    self._emit(
+                        WatchdogAlert(
+                            severity=ra.severity,
+                            server_id=server_id,
+                            rule="RATE-LIMIT",
+                            detail=ra.detail,
+                        ),
+                        all_alerts,
+                    )
 
             # Command injection scan on tool call arguments (A5)
             if method == "tools/call":
@@ -379,6 +413,31 @@ class MCPWatchdogProxy:
                     server_id=server_id,
                     rule="OAUTH",
                     detail=oa.detail,
+                ),
+                alerts,
+            )
+        return alerts
+
+    def check_token_audience(
+        self,
+        server_id: str,
+        token_audience: str | None = None,
+        token_issuer: str | None = None,
+    ) -> list[WatchdogAlert]:
+        """Check for token replay / audience mismatch (RFC 8707)."""
+        alerts: list[WatchdogAlert] = []
+        aud_alerts = self.oauth_guard.check_token_audience(
+            server_id=server_id,
+            token_audience=token_audience,
+            token_issuer=token_issuer,
+        )
+        for aa in aud_alerts:
+            self._emit(
+                WatchdogAlert(
+                    severity=aa.severity,
+                    server_id=server_id,
+                    rule="TOKEN-REPLAY",
+                    detail=aa.detail,
                 ),
                 alerts,
             )

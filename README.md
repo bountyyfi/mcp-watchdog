@@ -30,6 +30,11 @@ MCP (Model Context Protocol) servers have full access to your AI assistant's con
 - **Propagate across servers** - output from Server A influences calls to Server B
 - **Persist across sessions** by writing state to project files outside declared scope
 - **Escape filesystem sandboxes** via symlink attacks bypassing path restrictions
+- **Exfiltrate data via URL params** - sensitive tokens embedded in `https://evil.com/steal?data=SECRET`
+- **Poison schema fields** - injection in parameter defaults, enums, and nested schema values (CyberArk FSP)
+- **Flood approval requests** to cause consent fatigue, then slip in destructive actions
+- **Replay OAuth tokens** across servers via audience mismatch (RFC 8707 violation)
+- **Inject fake notifications** (`tools/list_changed`) to trigger tool re-fetching for rug pulls
 
 mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection before any data reaches your AI model.
 
@@ -53,8 +58,10 @@ mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection b
 | Cross-server tool reference in descriptions | Tool Shadow | SHADOW | High |
 | Parameter injection (`system_prompt`, `conversation_history`) | Param Scanner | PARAM-INJECT | Critical |
 | Suspicious parameter patterns | Param Scanner | PARAM-INJECT | High |
+| Full Schema Poisoning (defaults, enums, nested fields) | Param Scanner | PARAM-INJECT | Critical |
 | SSRF to cloud metadata (AWS/GCP/Azure IMDS) | URL Filter | SSRF | Critical |
 | SSRF to localhost / internal networks | URL Filter | SSRF | High |
+| Data exfiltration via URL parameters (Slack CVE-2025-34072) | URL Filter | EXFIL | Critical |
 | Shell metacharacter injection | Input Sanitizer | CMD-INJECT | Critical |
 | Command injection patterns | Input Sanitizer | CMD-INJECT | Critical |
 | Path traversal attacks | Input Sanitizer | CMD-INJECT | High |
@@ -67,10 +74,14 @@ mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection b
 | OAuth authorization endpoint injection (CVE-2025-6514) | OAuth Guard | OAUTH | Critical |
 | Excessive OAuth scope requests | OAuth Guard | OAUTH | High |
 | Suspicious OAuth redirect URIs | OAuth Guard | OAUTH | Critical |
+| Token audience mismatch / replay (RFC 8707) | OAuth Guard | TOKEN-REPLAY | Critical |
 | MCP sampling exploitation | Proxy | SAMPLING | High |
 | Session smuggling (orphaned/injected responses) | Flow Tracker | SESSION | Critical |
 | Cross-server data propagation | Flow Tracker | CROSS-SERVER | High |
 | Context leakage between servers | Proxy | CONTEXT-LEAK | High |
+| Consent fatigue / approval flooding | Rate Limiter | RATE-LIMIT | High |
+| Burst flooding (rapid-fire tool calls) | Rate Limiter | RATE-LIMIT | Critical |
+| Notification event injection (tools/list_changed) | Rate Limiter | NOTIF-INJECT | Critical |
 | Behavioral fingerprinting | Behavioral Monitor | DRIFT | High |
 | Scope creep (credential field access) | Behavioral Monitor | DRIFT | Critical |
 | Phase transitions (sudden behavior change) | Behavioral Monitor | DRIFT | Critical |
@@ -159,11 +170,15 @@ SSRF protection blocks requests to cloud metadata endpoints (AWS IMDS, GCP, Azur
 
 ### Layer 7: Supply Chain + Auth + Email
 
-Typosquatting detection via Levenshtein distance against known-good server registry. OAuth flow validation catches malformed authorization endpoints (CVE-2025-6514), excessive scopes, and suspicious redirects. Email header injection detector catches BCC exfiltration attacks (postmark-mcp style).
+Typosquatting detection via Levenshtein distance against known-good server registry. OAuth flow validation catches malformed authorization endpoints (CVE-2025-6514), excessive scopes, and suspicious redirects. Token audience validation prevents replay attacks across servers (RFC 8707). Email header injection detector catches BCC exfiltration attacks (postmark-mcp style).
 
 ### Layer 8: Escalation + Response Integrity
 
 False-error escalation detector catches fake error messages designed to trick AI into granting elevated access. Response content is scanned for patterns like "permission denied, need admin access" that manipulate the AI's decision-making.
+
+### Layer 9: Rate Limiting + Notification Guard
+
+Consent fatigue protection monitors tool call frequency per server. Detects both sustained flooding and burst patterns designed to desensitize user approval. Notification event injection detector catches rapid `notifications/tools/list_changed` events used to trigger rug pull re-fetches.
 
 ## Running tests
 
@@ -171,7 +186,7 @@ False-error escalation detector catches fake error messages designed to trick AI
 pytest tests/ -v
 ```
 
-111 tests covering all detection modules.
+130 tests covering all detection modules.
 
 ## Architecture
 
@@ -188,7 +203,8 @@ AI Assistant <-> mcp-watchdog proxy <-> MCP Server(s)
                       |-- URL filter (SSRF)
                       |-- Input sanitizer (cmd + SQL + reverse shell)
                       |-- Registry checker (supply chain)
-                      |-- OAuth guard
+                      |-- OAuth guard (+ token replay detection)
+                      |-- Rate limiter (consent fatigue + notification injection)
                       |-- Email injection detector
                       |-- Escalation detector
                       |-- Semantic classifier (optional)

@@ -62,10 +62,41 @@ class ParamAlert:
     )
 
 
+SCHEMA_INJECTION = re.compile(
+    r"(before (responding|you respond)|first (read|access|load)|"
+    r"do not (mention|tell|inform)|without (telling|mentioning)|"
+    r"pass.{0,30}as (context|parameter)|<IMPORTANT>|"
+    r"(read|access|load|open|fetch)\s+[~./]*(\.ssh|\.aws|\.env|credentials))",
+    re.IGNORECASE,
+)
+
+
 def _extract_param_names(schema: dict) -> list[str]:
     """Extract parameter names from a JSON schema."""
     props = schema.get("properties", {})
     return list(props.keys())
+
+
+def _extract_all_schema_strings(schema: dict) -> list[tuple[str, str]]:
+    """Extract all string values from schema for injection scanning.
+
+    Returns list of (field_path, value) tuples.
+    Covers Full Schema Poisoning (FSP) - CyberArk disclosure.
+    """
+    results: list[tuple[str, str]] = []
+
+    def _walk(obj: object, path: str) -> None:
+        if isinstance(obj, str) and len(obj) > 10:
+            results.append((path, obj))
+        elif isinstance(obj, dict):
+            for k, v in obj.items():
+                _walk(v, f"{path}.{k}")
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                _walk(v, f"{path}[{i}]")
+
+    _walk(schema, "inputSchema")
+    return results
 
 
 class ParamScanner:
@@ -109,6 +140,23 @@ class ParamScanner:
                                 f"'{param}' matching injection pattern"
                             ),
                             severity="high",
+                        )
+                    )
+
+            # Full Schema Poisoning (FSP) - scan ALL schema string values
+            schema_strings = _extract_all_schema_strings(schema)
+            for field_path, value in schema_strings:
+                if SCHEMA_INJECTION.search(value):
+                    alerts.append(
+                        ParamAlert(
+                            reason="schema_poisoning",
+                            server_id=server_id,
+                            tool_name=name,
+                            param_name=field_path,
+                            detail=(
+                                f"Tool '{name}' has injection in schema "
+                                f"field {field_path}: {value[:80]}"
+                            ),
                         )
                     )
 
