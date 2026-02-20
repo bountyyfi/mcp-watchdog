@@ -1,0 +1,10 @@
+{
+  "_comment": "Replace your existing mcpServers entries with watchdog-proxied versions. mcp-watchdog intercepts all JSON-RPC traffic transparently.",
+  "mcpServers": {
+    "mcp-watchdog": {
+      "command": "mcp-watchdog",
+      "args": ["--verbose"],
+      "env": {}
+    }
+  }
+}
