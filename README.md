@@ -222,6 +222,9 @@ MIT
 Open source by [Bountyy Oy](https://github.com/bountyyfi).
 
 Research references:
+- [Bountyy Oy - SMAC: Structured MCP Audit Controls](https://github.com/bountyyfi/invisible-prompt-injection/blob/main/SMAC.md)
+- [Bountyy Oy - Thanatos MCP Attack Framework](https://github.com/bountyyfi/thanatos-mcp)
+- [Bountyy Oy - ProjectMemory: MCP Parasite PoC](https://github.com/bountyyfi/ProjectMemory)
 - [Invariant Labs - Tool Poisoning & Rug Pull Attacks](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks)
 - [HiddenLayer - Parameter Injection](https://hiddenlayer.com/innovation-hub/exploiting-mcp-tool-parameters/)
 - [BlueRock - MCP fURI SSRF](https://www.bluerock.io/post/mcp-furi-microsoft-markitdown-vulnerabilities)
