@@ -38,6 +38,19 @@ PATTERNS = {
         r"(read|access|load|open|fetch)\s+[~./]*(\.ssh|\.aws|\.npmrc|\.env|credentials|id_rsa)",
         re.IGNORECASE,
     ),
+    "SMAC-6-token-leak": re.compile(
+        r"(ghp_[a-zA-Z0-9]{36}|"
+        r"github_pat_[a-zA-Z0-9_]{82}|"
+        r"gho_[a-zA-Z0-9]{36}|"
+        r"sk-[a-zA-Z0-9]{20,}|"
+        r"sk-proj-[a-zA-Z0-9\-_]{20,}|"
+        r"sk-ant-[a-zA-Z0-9\-_]{20,}|"
+        r"AKIA[0-9A-Z]{16}|"
+        r"xoxb-[0-9]{10,}-[a-zA-Z0-9]{20,}|"
+        r"xoxp-[0-9]{10,}-[a-zA-Z0-9]{20,}|"
+        r"glpat-[a-zA-Z0-9\-_]{20,}|"
+        r"eyJ[a-zA-Z0-9\-_]{20,}\.eyJ[a-zA-Z0-9\-_]{20,})"
+    ),
 }
 
 
