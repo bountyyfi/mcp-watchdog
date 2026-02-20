@@ -22,10 +22,10 @@ def main() -> None:
     )
     parser.parse_args()
 
-    console.print("[bold cyan]mcp-watchdog[/bold cyan] v0.1.0 — MCP security proxy")
+    console.print("[bold cyan]mcp-watchdog[/bold cyan] v0.1.0 - MCP security proxy")
     console.print("SMAC-L3 | Behavioral analysis | Cross-server correlation")
     console.print(
-        "Open source by Bountyy Oy — "
+        "Open source by Bountyy Oy - "
         "https://github.com/bountyyfi/mcp-watchdog\n"
     )
 

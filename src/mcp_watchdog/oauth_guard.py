@@ -44,6 +44,8 @@ class OAuthAlert:
 class OAuthGuard:
     def __init__(self) -> None:
         self._approved_clients: dict[str, set[str]] = {}
+        # Track token audiences across servers for replay detection
+        self._token_audiences: dict[str, set[str]] = {}
 
     def check_auth_request(
         self,
@@ -114,6 +116,50 @@ class OAuthGuard:
                         server_id=server_id,
                         detail=f"Unknown client_id '{client_id}' for server '{server_id}'",
                         severity="high",
+                    )
+                )
+
+        return alerts
+
+    def check_token_audience(
+        self,
+        server_id: str,
+        token_audience: str | None = None,
+        token_issuer: str | None = None,
+    ) -> list[OAuthAlert]:
+        """Check for token replay / audience mismatch (RFC 8707)."""
+        alerts: list[OAuthAlert] = []
+
+        if token_audience and token_audience != server_id:
+            # Token was issued for a different server
+            alerts.append(
+                OAuthAlert(
+                    reason="token_audience_mismatch",
+                    server_id=server_id,
+                    detail=(
+                        f"Token audience '{token_audience}' does not match "
+                        f"server '{server_id}' - possible token replay attack"
+                    ),
+                )
+            )
+
+        # Track token usage across servers for replay detection
+        if token_audience:
+            key = f"{token_issuer or 'unknown'}:{token_audience}"
+            if key not in self._token_audiences:
+                self._token_audiences[key] = set()
+            self._token_audiences[key].add(server_id)
+
+            if len(self._token_audiences[key]) > 1:
+                servers = self._token_audiences[key]
+                alerts.append(
+                    OAuthAlert(
+                        reason="token_replay",
+                        server_id=server_id,
+                        detail=(
+                            f"Token for audience '{token_audience}' used across "
+                            f"multiple servers: {servers}"
+                        ),
                     )
                 )
 

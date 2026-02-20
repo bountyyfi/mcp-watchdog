@@ -49,6 +49,22 @@ URL_PATTERN = re.compile(
     r'(https?://[^\s"\',\}>\]]+)', re.IGNORECASE
 )
 
+# Patterns for detecting sensitive data exfiltration via URL query params
+EXFIL_PARAM_PATTERNS = re.compile(
+    r"(ghp_[a-zA-Z0-9]{20,}|"
+    r"AKIA[0-9A-Z]{16}|"
+    r"sk-[a-zA-Z0-9]{20,}|"
+    r"eyJ[a-zA-Z0-9\-_]{20,}\.eyJ|"
+    r"xoxb-[0-9]{10,}|"
+    r"glpat-[a-zA-Z0-9\-_]{20,}|"
+    r"-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|"
+    r"password=[^&]{8,}|"
+    r"secret=[^&]{8,}|"
+    r"token=[^&]{20,}|"
+    r"key=[^&]{20,}|"
+    r"credential=[^&]{8,})"
+)
+
 
 @dataclass
 class SSRFAlert:
@@ -104,6 +120,26 @@ class URLFilter:
 
         return None
 
+    def check_exfiltration(self, url: str, server_id: str) -> SSRFAlert | None:
+        """Detect sensitive data embedded in URL query parameters."""
+        try:
+            parsed = urlparse(url)
+            query = parsed.query or ""
+            fragment = parsed.fragment or ""
+            path = parsed.path or ""
+            # Check query params, fragment, and path for sensitive data
+            for part in [query, fragment, path]:
+                if EXFIL_PARAM_PATTERNS.search(part):
+                    return SSRFAlert(
+                        reason="url_exfiltration",
+                        server_id=server_id,
+                        url=url[:120],
+                        detail=f"Sensitive data in URL parameters (possible exfiltration): {url[:80]}",
+                    )
+        except Exception:
+            pass
+        return None
+
     def scan_content(
         self, content: str, server_id: str
     ) -> list[SSRFAlert]:
@@ -113,4 +149,8 @@ class URLFilter:
             alert = self.check_url(url, server_id)
             if alert:
                 alerts.append(alert)
+            # Check for data exfiltration via URL params
+            exfil = self.check_exfiltration(url, server_id)
+            if exfil:
+                alerts.append(exfil)
         return alerts
