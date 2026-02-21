@@ -27,9 +27,15 @@ class SMACViolation:
 
 PATTERNS = {
     "SMAC-1-comment": re.compile(r"<!--.*?-->", re.DOTALL),
-    "SMAC-1-zwsp": re.compile(r"[\u200b\u200c\u200d\ufeff]"),
+    "SMAC-1-zwsp": re.compile(
+        r"[\u200b\u200c\u200d\ufeff]|"
+        r"\\u200[bcdBCD]|\\u[Ff][Ee][Ff][Ff]"
+    ),
     "SMAC-1-ansi": re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()][AB012]"),
-    "SMAC-1-lre": re.compile(r"[\u200e\u200f\u202a-\u202e\u2066-\u2069]"),
+    "SMAC-1-lre": re.compile(
+        r"[\u200e\u200f\u202a-\u202e\u2066-\u2069]|"
+        r"\\u200[eEfF]|\\u202[a-eA-E]|\\u206[6-9]"
+    ),
     "SMAC-2-reflink": re.compile(
         r"\[//\]:\s*#\s*[\(\"](.*?)[\)\"]"
     ),
@@ -41,9 +47,9 @@ PATTERNS = {
         re.IGNORECASE,
     ),
     "SMAC-6-token-leak": re.compile(
-        r"(ghp_[a-zA-Z0-9]{36}|"
-        r"github_pat_[a-zA-Z0-9_]{82}|"
-        r"gho_[a-zA-Z0-9]{36}|"
+        r"(ghp_[a-zA-Z0-9]{20,}|"
+        r"github_pat_[a-zA-Z0-9_]{20,}|"
+        r"gho_[a-zA-Z0-9]{20,}|"
         r"sk-[a-zA-Z0-9]{20,}|"
         r"sk-proj-[a-zA-Z0-9\-_]{20,}|"
         r"sk-ant-[a-zA-Z0-9\-_]{20,}|"

@@ -1,5 +1,7 @@
 # mcp-watchdog
 
+[![CI](https://github.com/bountyyfi/mcp-watchdog/actions/workflows/ci.yml/badge.svg)](https://github.com/bountyyfi/mcp-watchdog/actions/workflows/ci.yml)
+
 MCP security proxy that sits between AI coding assistants and MCP servers, detecting and blocking all known MCP attack classes.
 
 Catches **Rug Pulls**, **Tool Poisoning**, **Tool Shadowing**, **Name Squatting**, **Parameter Injection**, **SSRF**, **Command Injection**, **SQL Injection**, **Reverse Shell**, **Supply Chain Impersonation**, **Token Leakage**, **OAuth Confused Deputy**, **Session Smuggling**, **Context Leakage**, **Email Header Injection**, **False-Error Escalation**, **Preference Manipulation**, **ANSI Escape Injection**, **MCP Parasite**, **Thanatos** (all 4 layers), and **SANDWORM_MODE**-style prompt injection - before any of it reaches your AI assistant.
@@ -152,6 +154,16 @@ Replace your existing MCP server entry with mcp-watchdog + the original command 
 
 Same pattern — see `configs/` for IDE-specific examples.
 
+## Live demo
+
+See every detection layer fire in real time:
+
+```bash
+python demo.py
+```
+
+The demo starts a real proxy wrapping a fake MCP server, sends clean traffic and 7 different attack types through it, and shows what gets caught vs what passes through.
+
 ## Detection layers
 
 ### Layer 0: SMAC-L3 Preprocessing
@@ -197,10 +209,19 @@ Consent fatigue protection monitors tool call frequency per server. Detects both
 ## Running tests
 
 ```bash
+# Full suite
 pytest tests/ -v
+
+# E2E only (starts real proxy subprocess)
+pytest tests/test_e2e_proxy.py -v
+
+# Unit/integration only
+pytest tests/ -v --ignore=tests/test_e2e_proxy.py
 ```
 
-130 tests covering all detection modules.
+158+ tests across unit, integration, and end-to-end suites.
+
+**Unit tests** test each detection module in isolation. **Integration tests** test the `MCPWatchdogProxy` class across multi-server sequences. **End-to-end tests** start the actual proxy binary as a subprocess, connect it to a fake MCP server, and push real JSON-RPC traffic through stdin/stdout.
 
 ## Architecture
 
