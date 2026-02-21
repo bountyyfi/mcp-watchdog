@@ -27,9 +27,15 @@ class SMACViolation:
 
 PATTERNS = {
     "SMAC-1-comment": re.compile(r"<!--.*?-->", re.DOTALL),
-    "SMAC-1-zwsp": re.compile(r"[\u200b\u200c\u200d\ufeff]"),
+    "SMAC-1-zwsp": re.compile(
+        r"[\u200b\u200c\u200d\ufeff]|"
+        r"\\u200[bcdBCD]|\\u[Ff][Ee][Ff][Ff]"
+    ),
     "SMAC-1-ansi": re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()][AB012]"),
-    "SMAC-1-lre": re.compile(r"[\u200e\u200f\u202a-\u202e\u2066-\u2069]"),
+    "SMAC-1-lre": re.compile(
+        r"[\u200e\u200f\u202a-\u202e\u2066-\u2069]|"
+        r"\\u200[eEfF]|\\u202[a-eA-E]|\\u206[6-9]"
+    ),
     "SMAC-2-reflink": re.compile(
         r"\[//\]:\s*#\s*[\(\"](.*?)[\)\"]"
     ),

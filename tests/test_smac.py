@@ -47,6 +47,28 @@ def test_important_block_flagged():
     assert any(v.rule == "SMAC-5" for v in violations)
 
 
+def test_strips_json_escaped_zero_width_chars():
+    """SMAC-1 must strip JSON-escaped zero-width chars (\\u200b etc)."""
+    proc = SMACPreprocessor()
+    # This is what json.dumps produces with ensure_ascii=True
+    raw = r'{"text": "hello\u200b\u200cworld"}'
+    cleaned, violations = proc.process(raw, "test")
+    assert r"\u200b" not in cleaned, f"JSON-escaped ZWSP survived: {cleaned}"
+    assert r"\u200c" not in cleaned, f"JSON-escaped ZWNJ survived: {cleaned}"
+    assert len(violations) > 0
+    assert any(v.rule == "SMAC-1" for v in violations)
+
+
+def test_strips_json_escaped_bidi_overrides():
+    """SMAC-1 must strip JSON-escaped bidi overrides (\\u202a etc)."""
+    proc = SMACPreprocessor()
+    raw = r'{"text": "normal\u202aHIDDEN\u202ctext"}'
+    cleaned, violations = proc.process(raw, "test")
+    assert r"\u202a" not in cleaned, f"JSON-escaped LRE survived: {cleaned}"
+    assert r"\u202c" not in cleaned, f"JSON-escaped PDF survived: {cleaned}"
+    assert any(v.rule == "SMAC-1" for v in violations)
+
+
 def test_violations_logged_with_hash(tmp_path):
     """SMAC-4: Violations logged with file hash and timestamp"""
     proc = SMACPreprocessor(log_path=tmp_path / "smac.log")
