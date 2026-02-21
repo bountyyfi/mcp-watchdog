@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from rich.console import Console
 from rich.panel import Panel
 
-console = Console()
+console = Console(stderr=True)
 
 
 @dataclass

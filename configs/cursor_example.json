@@ -1,9 +1,9 @@
 {
-  "_comment": "Cursor MCP configuration with mcp-watchdog proxy.",
+  "_comment": "Cursor: wrap your MCP server with mcp-watchdog. Replace the original server entry with this pattern — the original command goes after '--'.",
   "mcpServers": {
-    "mcp-watchdog": {
+    "filesystem-watchdog": {
       "command": "mcp-watchdog",
-      "args": ["--verbose"],
+      "args": ["--verbose", "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/Users/you/projects"],
       "env": {}
     }
   }
