@@ -13,8 +13,11 @@ jobs:
 
       - name: Install MCP Publisher CLI
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/download/v1.0.0/mcp-publisher_1.0.0_linux_amd64.tar.gz" | tar xz mcp-publisher
+          TAG=$(curl -s https://api.github.com/repos/modelcontextprotocol/registry/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+          VERSION=${TAG#v}
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/download/${TAG}/mcp-publisher_${VERSION}_linux_amd64.tar.gz" | tar xz mcp-publisher
           sudo mv mcp-publisher /usr/local/bin/
+          mcp-publisher --version || true
 
       - name: Publish to MCP Registry
         env:
