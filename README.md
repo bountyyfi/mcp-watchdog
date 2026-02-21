@@ -2,6 +2,10 @@
 
 [![CI](https://github.com/bountyyfi/mcp-watchdog/actions/workflows/ci.yml/badge.svg)](https://github.com/bountyyfi/mcp-watchdog/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/mcp-watchdog)](https://pypi.org/project/mcp-watchdog/)
+[![Downloads](https://img.shields.io/pypi/dm/mcp-watchdog)](https://pypi.org/project/mcp-watchdog/)
+[![GitHub stars](https://img.shields.io/github/stars/bountyyfi/mcp-watchdog)](https://github.com/bountyyfi/mcp-watchdog/stargazers)
+[![Python](https://img.shields.io/pypi/pyversions/mcp-watchdog)](https://pypi.org/project/mcp-watchdog/)
+[![License](https://img.shields.io/pypi/l/mcp-watchdog)](https://github.com/bountyyfi/mcp-watchdog/blob/main/LICENSE)
 
 <!-- mcp-name: io.github.bountyyfi/mcp-watchdog -->
 
