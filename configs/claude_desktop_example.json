@@ -1,9 +1,14 @@
 {
-  "_comment": "Replace your existing mcpServers entries with watchdog-proxied versions. mcp-watchdog intercepts all JSON-RPC traffic transparently.",
+  "_comment": "Claude Desktop: wrap your MCP server with mcp-watchdog. Replace the original server entry with this pattern — the original command goes after '--'.",
   "mcpServers": {
-    "mcp-watchdog": {
+    "filesystem-watchdog": {
       "command": "mcp-watchdog",
-      "args": ["--verbose"],
+      "args": ["--verbose", "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/Users/you/projects"],
+      "env": {}
+    },
+    "sqlite-watchdog": {
+      "command": "mcp-watchdog",
+      "args": ["--verbose", "--", "npx", "-y", "@modelcontextprotocol/server-sqlite", "/path/to/db.sqlite"],
       "env": {}
     }
   }

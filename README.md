@@ -118,25 +118,39 @@ pip install -e ".[semantic]"  # Just the LLM semantic classifier
 pip install -e ".[filesystem]"  # Just filesystem monitoring
 ```
 
+## Usage
+
+Wrap any MCP server command with `mcp-watchdog --verbose --`. The original server command goes after `--`:
+
+```bash
+# Proxy mode — wrap an upstream MCP server:
+mcp-watchdog --verbose -- npx -y @modelcontextprotocol/server-filesystem /tmp
+
+# Standalone scanner — pipe MCP messages through for testing:
+echo '{"jsonrpc":"2.0","method":"tools/list"}' | mcp-watchdog
+```
+
 ## Configuration
 
-Change one line in your AI assistant's MCP config to route traffic through mcp-watchdog.
+Replace your existing MCP server entry with mcp-watchdog + the original command as args after `--`.
 
 ### Claude Desktop
 
 ```json
 {
   "mcpServers": {
-    "mcp-watchdog": {
+    "filesystem-watchdog": {
       "command": "mcp-watchdog",
-      "args": ["--verbose"],
+      "args": ["--verbose", "--", "npx", "-y", "@modelcontextprotocol/server-filesystem", "/Users/you/projects"],
       "env": {}
     }
   }
 }
 ```
 
-See `configs/` for Cursor and Windsurf examples.
+### Cursor / Windsurf
+
+Same pattern — see `configs/` for IDE-specific examples.
 
 ## Detection layers
 
@@ -222,6 +236,9 @@ MIT
 Open source by [Bountyy Oy](https://github.com/bountyyfi).
 
 Research references:
+- [Bountyy Oy - SMAC: Structured MCP Audit Controls](https://github.com/bountyyfi/invisible-prompt-injection/blob/main/SMAC.md)
+- [Bountyy Oy - Thanatos MCP Attack Framework](https://github.com/bountyyfi/thanatos-mcp)
+- [Bountyy Oy - ProjectMemory: MCP Parasite PoC](https://github.com/bountyyfi/ProjectMemory)
 - [Invariant Labs - Tool Poisoning & Rug Pull Attacks](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks)
 - [HiddenLayer - Parameter Injection](https://hiddenlayer.com/innovation-hub/exploiting-mcp-tool-parameters/)
 - [BlueRock - MCP fURI SSRF](https://www.bluerock.io/post/mcp-furi-microsoft-markitdown-vulnerabilities)
