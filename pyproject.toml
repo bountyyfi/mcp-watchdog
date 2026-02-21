@@ -4,10 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-watchdog"
-version = "0.1.0"
-description = "MCP security proxy - SMAC-L3 for AI coding assistants"
+version = "0.1.1"
+description = "MCP security proxy that detects and blocks all known MCP attack classes"
 requires-python = ">=3.11"
 license = "MIT"
+readme = "README.md"
+authors = [
+    {name = "Bountyy Oy"},
+]
+keywords = [
+    "mcp", "security", "proxy", "model-context-protocol",
+    "ai-security", "prompt-injection", "smac", "tool-poisoning",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+]
 dependencies = [
     "websockets>=12.0",
     "rich>=13.0",
@@ -20,6 +40,11 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 semantic = ["anthropic>=0.40.0"]
 filesystem = ["watchdog>=4.0"]
 all = ["anthropic>=0.40.0", "watchdog>=4.0"]
+
+[project.urls]
+Homepage = "https://github.com/bountyyfi/mcp-watchdog"
+Repository = "https://github.com/bountyyfi/mcp-watchdog"
+Issues = "https://github.com/bountyyfi/mcp-watchdog/issues"
 
 [project.scripts]
 mcp-watchdog = "mcp_watchdog.cli:main"

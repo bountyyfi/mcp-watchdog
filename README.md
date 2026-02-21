@@ -1,6 +1,9 @@
 # mcp-watchdog
 
 [![CI](https://github.com/bountyyfi/mcp-watchdog/actions/workflows/ci.yml/badge.svg)](https://github.com/bountyyfi/mcp-watchdog/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/mcp-watchdog)](https://pypi.org/project/mcp-watchdog/)
+
+<!-- mcp-name: io.github.bountyyfi/mcp-watchdog -->
 
 MCP security proxy that sits between AI coding assistants and MCP servers, detecting and blocking all known MCP attack classes.
 
