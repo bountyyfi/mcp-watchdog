@@ -1,0 +1,24 @@
+name: Publish to MCP Registry
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MCP Publisher CLI
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/download/v1.0.0/mcp-publisher_1.0.0_linux_amd64.tar.gz" | tar xz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+
+      - name: Publish to MCP Registry
+        env:
+          MCP_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mcp-publisher login github --token "$MCP_GITHUB_TOKEN"
+          mcp-publisher publish
