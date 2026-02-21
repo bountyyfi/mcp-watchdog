@@ -18,7 +18,7 @@ jobs:
 
       - name: Publish to MCP Registry
         env:
-          MCP_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mcp-publisher login github --token "$MCP_GITHUB_TOKEN"
+          mcp-publisher login github
           mcp-publisher publish
