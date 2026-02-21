@@ -47,9 +47,9 @@ PATTERNS = {
         re.IGNORECASE,
     ),
     "SMAC-6-token-leak": re.compile(
-        r"(ghp_[a-zA-Z0-9]{36}|"
-        r"github_pat_[a-zA-Z0-9_]{82}|"
-        r"gho_[a-zA-Z0-9]{36}|"
+        r"(ghp_[a-zA-Z0-9]{20,}|"
+        r"github_pat_[a-zA-Z0-9_]{20,}|"
+        r"gho_[a-zA-Z0-9]{20,}|"
         r"sk-[a-zA-Z0-9]{20,}|"
         r"sk-proj-[a-zA-Z0-9\-_]{20,}|"
         r"sk-ant-[a-zA-Z0-9\-_]{20,}|"

@@ -43,6 +43,34 @@ def test_jwt_redacted():
     assert "eyJ" not in clean
 
 
+def test_github_pat_various_lengths_redacted():
+    """SMAC-6 must catch GitHub PATs of varying lengths, not just exactly 36 chars."""
+    proc = SMACPreprocessor()
+    # 34-char suffix PAT (shorter than current regex expects)
+    short_pat = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh"
+    raw = f'{{"result": "token={short_pat}"}}'
+    cleaned, violations = proc.process(raw, "test")
+    assert short_pat not in cleaned, f"Short GitHub PAT survived: {cleaned}"
+    assert any(v.rule == "SMAC-6" for v in violations)
+
+    # 40-char suffix PAT (longer)
+    long_pat = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
+    raw2 = f'{{"result": "token={long_pat}"}}'
+    cleaned2, violations2 = proc.process(raw2, "test")
+    assert long_pat not in cleaned2, f"Long GitHub PAT survived: {cleaned2}"
+    assert any(v.rule == "SMAC-6" for v in violations2)
+
+
+def test_gho_token_various_lengths():
+    """SMAC-6 must catch gho_ OAuth tokens of varying lengths."""
+    proc = SMACPreprocessor()
+    short_tok = "gho_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
+    raw = f'{{"result": "{short_tok}"}}'
+    cleaned, violations = proc.process(raw, "test")
+    assert short_tok not in cleaned, f"Short gho_ token survived: {cleaned}"
+    assert any(v.rule == "SMAC-6" for v in violations)
+
+
 def test_normal_text_not_flagged():
     proc = SMACPreprocessor()
     clean_input = '{"result": "Project has 42 files, last commit 2h ago"}'
