@@ -289,7 +289,7 @@ mcp-watchdog is a transparent JSON-RPC proxy. It does not modify clean responses
 
 ## Changelog
 
-### 0.1.4
+### 0.1.5
 
 - **MCP 2025-11-25 protocol coverage** — method-aware scanning for `resources/read`, `resources/list`, `resources/templates/list`, `prompts/get`, `prompts/list`, `sampling/createMessage` (deep scan), and `elicitation/create` (credential harvesting).
 - **P0 bug fixes** — scope enforcer and semantic classifier were instantiated but never called in the proxy pipeline; symlink escape detection was dead code (compared `resolve()` to itself).
