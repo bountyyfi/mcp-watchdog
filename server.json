@@ -2,12 +2,12 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
   "name": "io.github.bountyyfi/mcp-watchdog",
   "description": "MCP security proxy - detects and blocks 40+ MCP attack classes. Zero config.",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "mcp-watchdog",
-      "version": "0.1.3",
+      "version": "0.1.5",
       "transport": {
         "type": "stdio"
       }
