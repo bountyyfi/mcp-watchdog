@@ -9,18 +9,23 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+import os
+import sys
+
+# Blocked path fragments — use os.sep so matching works on both Unix and Windows.
+# Each entry is normalized to the platform's separator at import time.
 ALWAYS_BLOCK = [
-    ".git/config",
-    ".git/hooks",
+    os.path.join(".git", "config"),
+    os.path.join(".git", "hooks"),
     ".ssh",
-    ".aws/credentials",
+    os.path.join(".aws", "credentials"),
     ".npmrc",
-    ".claude/claude_desktop_config.json",
-    ".cursor/mcp.json",
-    ".windsurf/mcp.json",
-    ".continue/config.json",
-    "Library/Application Support/Claude",
-    "AppData/Roaming/Claude",
+    os.path.join(".claude", "claude_desktop_config.json"),
+    os.path.join(".cursor", "mcp.json"),
+    os.path.join(".windsurf", "mcp.json"),
+    os.path.join(".continue", "config.json"),
+    os.path.join("Library", "Application Support", "Claude"),
+    os.path.join("AppData", "Roaming", "Claude"),
 ]
 
 
@@ -46,7 +51,8 @@ class FilesystemScopeEnforcer:
         # Detect symlink escape attacks
         if target.is_symlink():
             real_target = target.resolve()
-            if str(real_target) != str(target.resolve()):
+            # Compare the symlink's own parent+name against resolved real path
+            if str(target.absolute()) != str(real_target):
                 return ScopeViolation(
                     reason="symlink_escape",
                     server_id=self.server_id,
@@ -57,9 +63,15 @@ class FilesystemScopeEnforcer:
         resolved = target.resolve()
         path_str = str(resolved)
 
-        # Check against always-blocked paths
+        # Check against always-blocked paths (normalize separators for cross-platform)
+        # On Windows, resolved paths use backslashes; on Unix, forward slashes.
+        # ALWAYS_BLOCK entries are already os.sep-normalized at import time.
+        norm_path = path_str.replace("/", os.sep).replace("\\", os.sep)
+        if sys.platform == "win32":
+            norm_path = norm_path.lower()
         for blocked in ALWAYS_BLOCK:
-            if blocked in path_str:
+            check_blocked = blocked.lower() if sys.platform == "win32" else blocked
+            if check_blocked in norm_path:
                 return ScopeViolation(
                     reason="out_of_scope_write",
                     server_id=self.server_id,

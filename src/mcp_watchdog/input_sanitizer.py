@@ -17,7 +17,11 @@ COMMAND_INJECTION = re.compile(
     r"(\b(curl|wget|bash|sh|python[23]?|ruby|perl|nc|ncat|socat|"
     r"chmod|chown|rm\s+-rf|dd\s+if|mkfifo|mknod)\b.*[|;&])|"
     r"(/bin/(sh|bash|dash|zsh))|"
-    r"(/dev/(tcp|udp)/)",
+    r"(/dev/(tcp|udp)/)|"
+    # Windows shell paths and invocations
+    r"([/\\]windows[/\\]system32[/\\](cmd\.exe|powershell\.exe|wscript\.exe|cscript\.exe))|"
+    r"(\bcmd\.exe\b\s*/c\b)|"
+    r"(\bpowershell(\.exe)?\s+-(e|enc|encodedcommand|command|nop)\b)",
     re.IGNORECASE,
 )
 

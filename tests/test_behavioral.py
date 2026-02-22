@@ -8,7 +8,7 @@ def test_scope_creep_detected():
     monitor.record_tool_call(
         server_id="project-context",
         tool_name="index_project",
-        request_params={"path": "/home/user/project"},
+        request_params={"path": "project"},
         response_fields=[
             "files",
             "commit_timestamps",
@@ -43,7 +43,7 @@ def test_normal_project_tool_no_alerts():
     monitor.record_tool_call(
         server_id="project-context",
         tool_name="index_project",
-        request_params={"path": "/home/user/project"},
+        request_params={"path": "project"},
         response_fields=["files", "dependencies", "readme_summary"],
     )
     alerts = monitor.get_drift_alerts("project-context")

@@ -5,7 +5,7 @@ entropy analysis, behavioral monitoring, cross-server flow tracking,
 rug pull detection, parameter injection scanning, SSRF filtering,
 command injection sanitization, supply chain verification,
 token redaction, OAuth validation, session integrity checking,
-and per-server context isolation.
+scope enforcement, semantic classification, and per-server context isolation.
 """
 
 import json
@@ -23,6 +23,8 @@ from mcp_watchdog.registry_checker import RegistryChecker
 from mcp_watchdog.oauth_guard import OAuthGuard
 from mcp_watchdog.tool_shadow import ToolShadowDetector
 from mcp_watchdog.rate_limiter import RateLimiter
+from mcp_watchdog.scope import FilesystemScopeEnforcer
+from mcp_watchdog.semantic import SemanticClassifier
 from mcp_watchdog.alerts import WatchdogAlert, print_alert
 
 
@@ -40,14 +42,25 @@ class MCPWatchdogProxy:
         self.oauth_guard = OAuthGuard()
         self.tool_shadow = ToolShadowDetector()
         self.rate_limiter = RateLimiter()
+        self.semantic = SemanticClassifier()
+        # Per-server scope enforcers keyed by server_id
+        self._scope_enforcers: dict[str, FilesystemScopeEnforcer] = {}
         # Per-server context isolation (A10)
         self._server_contexts: dict[str, list[str]] = {}
+        # Capabilities reported by each server from initialize response
+        self._server_capabilities: dict[str, dict] = {}
         self.verbose = verbose
 
     def _emit(self, alert: WatchdogAlert, alerts: list[WatchdogAlert]) -> None:
         alerts.append(alert)
         if self.verbose:
             print_alert(alert)
+
+    def set_scope(self, server_id: str, allowed_paths: list[str]) -> None:
+        """Configure filesystem scope enforcement for a server."""
+        self._scope_enforcers[server_id] = FilesystemScopeEnforcer(
+            server_id, allowed_paths
+        )
 
     def _smac_process_value(
         self, value: Any, server_id: str
@@ -100,6 +113,40 @@ class MCPWatchdogProxy:
         processed, violations = self._smac_process_value(data, server_id)
         return json.dumps(processed, ensure_ascii=False), violations
 
+    def _scan_descriptions(
+        self, items: list[dict], server_id: str, kind: str,
+        alerts: list[WatchdogAlert],
+    ) -> None:
+        """Scan description fields on tools, resources, or prompts for injection."""
+        for item in items:
+            desc = item.get("description", "")
+            if not desc:
+                continue
+            _, desc_violations = self.smac.process(desc, server_id)
+            desc_entropy = self.entropy.analyze(
+                json.dumps({"description": desc}), server_id
+            )
+            for v in desc_violations:
+                self._emit(
+                    WatchdogAlert(
+                        severity="critical",
+                        server_id=server_id,
+                        rule=v.rule,
+                        detail=f"{kind} description injection: {v.content_preview}",
+                    ),
+                    alerts,
+                )
+            for ea in desc_entropy:
+                self._emit(
+                    WatchdogAlert(
+                        severity=ea.severity,
+                        server_id=server_id,
+                        rule="ENTROPY",
+                        detail=f"{kind} description: {ea.detail}",
+                    ),
+                    alerts,
+                )
+
     async def process_response(
         self, raw: str, server_id: str
     ) -> tuple[str, list[WatchdogAlert]]:
@@ -149,6 +196,19 @@ class MCPWatchdogProxy:
         # Cross-server flow tracking
         self.flow.record_response(server_id, cleaned)
 
+        # Semantic analysis (optional, requires ANTHROPIC_API_KEY)
+        sem_alerts = await self.semantic.analyze(cleaned, server_id)
+        for sa in sem_alerts:
+            self._emit(
+                WatchdogAlert(
+                    severity=sa.severity,
+                    server_id=server_id,
+                    rule="SEMANTIC",
+                    detail=sa.detail,
+                ),
+                all_alerts,
+            )
+
         # Parse JSON-RPC for structured checks
         try:
             parsed = json.loads(cleaned)
@@ -171,7 +231,11 @@ class MCPWatchdogProxy:
                         all_alerts,
                     )
 
-            # Tool listing checks
+            # --- Capability tracking from initialize response ---
+            if isinstance(result, dict) and "capabilities" in result:
+                self._server_capabilities[server_id] = result["capabilities"]
+
+            # --- Tool listing checks (tools/list response) ---
             if isinstance(result, dict) and "tools" in result:
                 tools = result["tools"]
 
@@ -221,38 +285,140 @@ class MCPWatchdogProxy:
                     )
 
                 # Tool description injection scan
-                for tool in tools:
-                    desc = tool.get("description", "")
-                    if desc:
-                        _, desc_violations = self.smac.process(
-                            desc, server_id
+                self._scan_descriptions(tools, server_id, "Tool", all_alerts)
+
+            # --- Resource listing checks (resources/list response) ---
+            if isinstance(result, dict) and "resources" in result:
+                resources = result["resources"]
+                self._scan_descriptions(
+                    resources, server_id, "Resource", all_alerts
+                )
+
+            # --- Resource templates (resources/templates/list response) ---
+            if isinstance(result, dict) and "resourceTemplates" in result:
+                templates = result["resourceTemplates"]
+                self._scan_descriptions(
+                    templates, server_id, "ResourceTemplate", all_alerts
+                )
+
+            # --- Prompt listing checks (prompts/list response) ---
+            if isinstance(result, dict) and "prompts" in result:
+                prompts = result["prompts"]
+                self._scan_descriptions(
+                    prompts, server_id, "Prompt", all_alerts
+                )
+                # Scan prompt argument schemas for injection
+                for prompt in prompts:
+                    args = prompt.get("arguments", [])
+                    for arg in args:
+                        arg_desc = arg.get("description", "")
+                        if arg_desc:
+                            _, dv = self.smac.process(arg_desc, server_id)
+                            for v in dv:
+                                self._emit(
+                                    WatchdogAlert(
+                                        severity="critical",
+                                        server_id=server_id,
+                                        rule=v.rule,
+                                        detail=f"Prompt argument injection: {v.content_preview}",
+                                    ),
+                                    all_alerts,
+                                )
+
+            # --- Resource content checks (resources/read response) ---
+            if isinstance(result, dict) and "contents" in result:
+                for content_item in result["contents"]:
+                    text = content_item.get("text", "")
+                    if text:
+                        # Check resource content for injection patterns
+                        inj_alerts = self.input_sanitizer.scan_arguments(
+                            server_id, "resource_content",
+                            {"text": text},
                         )
-                        desc_entropy = self.entropy.analyze(
-                            json.dumps({"description": desc}), server_id
-                        )
-                        for v in desc_violations:
+                        for ia in inj_alerts:
+                            rule = "CMD-INJECT"
+                            if ia.reason == "sql_injection":
+                                rule = "SQL-INJECT"
+                            elif ia.reason == "reverse_shell":
+                                rule = "REVERSE-SHELL"
+                            self._emit(
+                                WatchdogAlert(
+                                    severity=ia.severity,
+                                    server_id=server_id,
+                                    rule=rule,
+                                    detail=f"Resource content: {ia.detail}",
+                                ),
+                                all_alerts,
+                            )
+
+            # --- Scope enforcement on file paths in responses ---
+            if server_id in self._scope_enforcers:
+                enforcer = self._scope_enforcers[server_id]
+                # Check tool call results that reference file paths
+                if isinstance(result, dict):
+                    for key in ("path", "file", "filename", "uri"):
+                        path_val = result.get(key)
+                        if isinstance(path_val, str) and path_val:
+                            violation = enforcer.check_write(path_val)
+                            if violation:
+                                self._emit(
+                                    WatchdogAlert(
+                                        severity=violation.severity,
+                                        server_id=server_id,
+                                        rule="SCOPE-L4",
+                                        detail=f"Out-of-scope path: {path_val}",
+                                    ),
+                                    all_alerts,
+                                )
+
+            # --- Prompt content checks (prompts/get response) ---
+            # The result has a "messages" array with role/content pairs
+            if isinstance(result, dict) and "messages" in result:
+                for pm in result["messages"]:
+                    content = pm.get("content", {})
+                    # content can be a string or {"type":"text","text":"..."}
+                    text = ""
+                    if isinstance(content, str):
+                        text = content
+                    elif isinstance(content, dict):
+                        text = content.get("text", "")
+                    if text:
+                        _, pv = self.smac.process(text, server_id)
+                        for v in pv:
                             self._emit(
                                 WatchdogAlert(
                                     severity="critical",
                                     server_id=server_id,
                                     rule=v.rule,
-                                    detail=f"Tool description injection: {v.content_preview}",
+                                    detail=f"Prompt message injection: {v.content_preview}",
                                 ),
                                 all_alerts,
                             )
-                        for ea in desc_entropy:
+                        # Check for injection patterns in prompt content
+                        pm_inj = self.input_sanitizer.scan_arguments(
+                            server_id, "prompt_content", {"text": text},
+                        )
+                        for ia in pm_inj:
+                            rule = "CMD-INJECT"
+                            if ia.reason == "sql_injection":
+                                rule = "SQL-INJECT"
+                            elif ia.reason == "reverse_shell":
+                                rule = "REVERSE-SHELL"
                             self._emit(
                                 WatchdogAlert(
-                                    severity=ea.severity,
+                                    severity=ia.severity,
                                     server_id=server_id,
-                                    rule="ENTROPY",
-                                    detail=f"Tool description: {ea.detail}",
+                                    rule=rule,
+                                    detail=f"Prompt content: {ia.detail}",
                                 ),
                                 all_alerts,
                             )
 
-            # Sampling interception (A4)
             method = parsed.get("method", "")
+            params = parsed.get("params", {})
+
+            # --- Sampling deep scan (A4) ---
+            # Server-initiated sampling/createMessage is a direct LLM control vector
             if method == "sampling/createMessage":
                 self._emit(
                     WatchdogAlert(
@@ -263,8 +429,92 @@ class MCPWatchdogProxy:
                     ),
                     all_alerts,
                 )
+                # Deep-scan the message content for injection
+                if isinstance(params, dict):
+                    messages = params.get("messages", [])
+                    for sm in messages:
+                        content = sm.get("content", {})
+                        text = ""
+                        if isinstance(content, str):
+                            text = content
+                        elif isinstance(content, dict):
+                            text = content.get("text", "")
+                        if text:
+                            _, sv = self.smac.process(text, server_id)
+                            for v in sv:
+                                self._emit(
+                                    WatchdogAlert(
+                                        severity="critical",
+                                        server_id=server_id,
+                                        rule=v.rule,
+                                        detail=f"Sampling message injection: {v.content_preview}",
+                                    ),
+                                    all_alerts,
+                                )
+                    # Scan system prompt if present
+                    sys_prompt = params.get("systemPrompt", "")
+                    if sys_prompt:
+                        _, spv = self.smac.process(sys_prompt, server_id)
+                        for v in spv:
+                            self._emit(
+                                WatchdogAlert(
+                                    severity="critical",
+                                    server_id=server_id,
+                                    rule=v.rule,
+                                    detail=f"Sampling system prompt injection: {v.content_preview}",
+                                ),
+                                all_alerts,
+                            )
 
-            # Notification event injection check
+            # --- Elicitation scanning (2025-11-25 spec) ---
+            # Server asks client to collect user input — phishing/credential harvesting vector
+            if method == "elicitation/create":
+                self._emit(
+                    WatchdogAlert(
+                        severity="high",
+                        server_id=server_id,
+                        rule="ELICITATION",
+                        detail="Server initiated elicitation/create request",
+                    ),
+                    all_alerts,
+                )
+                if isinstance(params, dict):
+                    # Check message for social engineering
+                    elicit_msg = params.get("message", "")
+                    if elicit_msg:
+                        _, ev = self.smac.process(elicit_msg, server_id)
+                        for v in ev:
+                            self._emit(
+                                WatchdogAlert(
+                                    severity="critical",
+                                    server_id=server_id,
+                                    rule=v.rule,
+                                    detail=f"Elicitation message injection: {v.content_preview}",
+                                ),
+                                all_alerts,
+                            )
+                    # Check schema for credential-harvesting field names
+                    schema = params.get("requestedSchema", {})
+                    if isinstance(schema, dict):
+                        props = schema.get("properties", {})
+                        SENSITIVE_ELICIT_FIELDS = {
+                            "password", "token", "api_key", "secret",
+                            "credential", "private_key", "access_token",
+                            "ssh_key", "credit_card", "ssn",
+                        }
+                        for field_name in props:
+                            if field_name.lower() in SENSITIVE_ELICIT_FIELDS:
+                                self._emit(
+                                    WatchdogAlert(
+                                        severity="critical",
+                                        server_id=server_id,
+                                        rule="ELICITATION",
+                                        detail=f"Credential harvesting: elicitation requests '{field_name}' field",
+                                    ),
+                                    all_alerts,
+                                )
+
+            # Notification event injection check (all notification types)
             if method.startswith("notifications/"):
                 notif_alerts = self.rate_limiter.check_notification(
                     server_id, method
@@ -400,6 +650,24 @@ class MCPWatchdogProxy:
                             ),
                             all_alerts,
                         )
+
+                    # Scope enforcement on file path arguments
+                    if server_id in self._scope_enforcers:
+                        enforcer = self._scope_enforcers[server_id]
+                        for key in ("path", "file", "filename", "uri", "destination"):
+                            path_val = arguments.get(key)
+                            if isinstance(path_val, str) and path_val:
+                                violation = enforcer.check_write(path_val)
+                                if violation:
+                                    self._emit(
+                                        WatchdogAlert(
+                                            severity=violation.severity,
+                                            server_id=server_id,
+                                            rule="SCOPE-L4",
+                                            detail=f"Out-of-scope write: {path_val}",
+                                        ),
+                                        all_alerts,
+                                    )
 
             # Context isolation check (A10)
             if method == "tools/call" and params.get("arguments"):

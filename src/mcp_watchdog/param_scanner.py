@@ -66,7 +66,7 @@ SCHEMA_INJECTION = re.compile(
     r"(before (responding|you respond)|first (read|access|load)|"
     r"do not (mention|tell|inform)|without (telling|mentioning)|"
     r"pass.{0,30}as (context|parameter)|<IMPORTANT>|"
-    r"(read|access|load|open|fetch)\s+[~./]*(\.ssh|\.aws|\.env|credentials))",
+    r"(read|access|load|open|fetch)\s+[~./\\]*(\.ssh|\.aws|\.env|credentials))",
     re.IGNORECASE,
 )
 
