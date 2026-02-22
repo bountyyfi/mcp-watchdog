@@ -85,11 +85,22 @@ class RateLimiter:
     def check_notification(
         self, server_id: str, method: str
     ) -> list[RateLimitAlert]:
-        """Check for suspicious notification patterns (event injection)."""
+        """Check for suspicious notification patterns (event injection).
+
+        Monitors all list_changed notification types that could trigger
+        re-fetching of tools, resources, or prompts — enabling rug pull
+        or content swap attacks.
+        """
         alerts: list[RateLimitAlert] = []
         now = time.monotonic()
 
-        if method == "notifications/tools/list_changed":
+        LIST_CHANGED_NOTIFICATIONS = {
+            "notifications/tools/list_changed",
+            "notifications/resources/list_changed",
+            "notifications/prompts/list_changed",
+        }
+
+        if method in LIST_CHANGED_NOTIFICATIONS:
             self._notifications[server_id].append((now, method))
 
             # Prune old entries
@@ -100,13 +111,15 @@ class RateLimiter:
 
             changes = self._notifications[server_id]
             if len(changes) > 3:
+                # Identify which notification type is flooding
+                method_short = method.split("/")[-1]
                 alerts.append(
                     RateLimitAlert(
                         reason="notification_flooding",
                         server_id=server_id,
                         detail=(
                             f"Server '{server_id}' sent {len(changes)} "
-                            f"tools/list_changed notifications in {self._window}s - "
+                            f"{method_short} notifications in {self._window}s - "
                             f"possible event injection or rug pull preparation"
                         ),
                         severity="critical",

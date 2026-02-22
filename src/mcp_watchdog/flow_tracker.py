@@ -12,7 +12,23 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from collections import defaultdict
 
-TOKEN_PATTERN = re.compile(r"\b([a-zA-Z0-9_\-]{20,})\b")
+# Match long alphanumeric tokens (API keys, PATs), JWTs (dot-separated
+# base64 segments), UUIDs, and prefix-keyed secrets (ghp_, sk-, AKIA, etc.)
+TOKEN_PATTERN = re.compile(
+    r"(?:"
+    # JWTs: eyJ...header.eyJ...payload.signature
+    r"eyJ[a-zA-Z0-9\-_]+\.eyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+"
+    r"|"
+    # UUIDs: 8-4-4-4-12 hex
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    r"|"
+    # Prefixed API keys (ghp_, gho_, sk-, xoxb-, glpat-, AKIA, etc.)
+    r"(?:ghp_|gho_|github_pat_|sk-|sk-proj-|sk-ant-|xoxb-|xoxp-|glpat-|AKIA)[a-zA-Z0-9\-_]{10,}"
+    r"|"
+    # General long tokens (20+ alphanumeric/underscore/dash)
+    r"\b[a-zA-Z0-9_\-]{20,}\b"
+    r")"
+)
 
 
 @dataclass
