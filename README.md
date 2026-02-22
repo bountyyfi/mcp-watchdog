@@ -9,7 +9,7 @@
 
 <!-- mcp-name: io.github.bountyyfi/mcp-watchdog -->
 
-MCP security proxy that sits between AI coding assistants and MCP servers, detecting and blocking all known MCP attack classes.
+MCP security proxy that sits between AI coding assistants and MCP servers, detecting and blocking all known MCP attack classes. Works with any MCP server (tools, resources, prompts) on macOS, Linux, and Windows.
 
 Catches **Rug Pulls**, **Tool Poisoning**, **Tool Shadowing**, **Name Squatting**, **Parameter Injection**, **SSRF**, **Command Injection**, **SQL Injection**, **Reverse Shell**, **Supply Chain Impersonation**, **Token Leakage**, **OAuth Confused Deputy**, **Session Smuggling**, **Context Leakage**, **Email Header Injection**, **False-Error Escalation**, **Preference Manipulation**, **ANSI Escape Injection**, **MCP Parasite**, **Thanatos** (all 4 layers), and **SANDWORM_MODE**-style prompt injection - before any of it reaches your AI assistant.
 
@@ -254,6 +254,17 @@ AI Assistant <-> mcp-watchdog proxy <-> MCP Server(s)
 ```
 
 mcp-watchdog is a transparent JSON-RPC proxy. It does not modify clean responses - only strips malicious content and raises alerts.
+
+## Changelog
+
+### 0.1.3
+
+- **Fix SMAC corrupting non-filesystem servers** — SMAC regex patterns now run against individual JSON string values instead of the raw wire-format JSON, preventing corruption of structural characters (`{`, `}`, `"`, etc.) in legitimate responses. This fixes compatibility with resources, prompts, and other MCP server types beyond the filesystem server.
+- **Windows support** — thread-based stdin reader replaces `connect_read_pipe` (unavailable on Windows `ProactorEventLoop`); signal handlers are now conditional on platform.
+
+### 0.1.0
+
+- Initial release with SMAC-L3, behavioral drift, entropy analysis, flow tracking, tool integrity, shadow detection, SSRF/injection prevention, supply chain checks, OAuth guard, rate limiting, and scope enforcement.
 
 ## License
 
