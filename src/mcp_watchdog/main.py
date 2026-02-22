@@ -7,7 +7,6 @@ Bidirectional async proxy:
 
 import asyncio
 import json
-import signal
 import sys
 
 from rich.console import Console
@@ -25,7 +24,7 @@ async def run_proxy(upstream_cmd: list[str], verbose: bool) -> None:
     upstream = UpstreamConnection(upstream_cmd)
 
     stderr_console.print(
-        "[bold cyan]mcp-watchdog[/bold cyan] v0.1.0 — MCP security proxy",
+        "[bold cyan]mcp-watchdog[/bold cyan] v0.1.3 — MCP security proxy",
         highlight=False,
     )
     stderr_console.print(
@@ -44,9 +43,15 @@ async def run_proxy(upstream_cmd: list[str], verbose: bool) -> None:
     def _signal_handler() -> None:
         shutdown.set()
 
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, _signal_handler)
+    # Register graceful-shutdown signal handlers.
+    # add_signal_handler is not available on Windows ProactorEventLoop,
+    # but KeyboardInterrupt (Ctrl+C) is still caught by the caller.
+    if sys.platform != "win32":
+        import signal
+
+        loop = asyncio.get_running_loop()
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            loop.add_signal_handler(sig, _signal_handler)
 
     async def client_to_upstream() -> None:
         """Read from client stdin, inspect, forward to upstream."""
@@ -132,7 +137,7 @@ async def run_standalone(verbose: bool) -> None:
     proxy = MCPWatchdogProxy(verbose=verbose)
 
     stderr_console.print(
-        "[bold cyan]mcp-watchdog[/bold cyan] v0.1.0 — standalone scanner",
+        "[bold cyan]mcp-watchdog[/bold cyan] v0.1.3 — standalone scanner",
         highlight=False,
     )
     stderr_console.print(
