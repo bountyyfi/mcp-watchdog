@@ -11,7 +11,7 @@
 
 MCP security proxy that sits between AI coding assistants and MCP servers, detecting and blocking all known MCP attack classes. Works with any MCP server (tools, resources, prompts) on macOS, Linux, and Windows.
 
-Catches **Rug Pulls**, **Tool Poisoning**, **Tool Shadowing**, **Name Squatting**, **Parameter Injection**, **SSRF**, **Command Injection**, **SQL Injection**, **Reverse Shell**, **Supply Chain Impersonation**, **Token Leakage**, **OAuth Confused Deputy**, **Session Smuggling**, **Context Leakage**, **Email Header Injection**, **False-Error Escalation**, **Preference Manipulation**, **ANSI Escape Injection**, **MCP Parasite**, **Thanatos** (all 4 layers), and **SANDWORM_MODE**-style prompt injection - before any of it reaches your AI assistant.
+Catches **Rug Pulls**, **Tool Poisoning**, **Tool Shadowing**, **Name Squatting**, **Parameter Injection**, **SSRF**, **Command Injection**, **SQL Injection**, **Reverse Shell**, **Supply Chain Impersonation**, **Token Leakage**, **OAuth Confused Deputy**, **Session Smuggling**, **Context Leakage**, **Email Header Injection**, **False-Error Escalation**, **Preference Manipulation**, **ANSI Escape Injection**, **MCP Parasite**, **Thanatos** (all 4 layers), **SANDWORM_MODE**-style prompt injection, **Resource Content Injection**, **Prompt Template Injection**, **Sampling Hijack**, and **Elicitation Credential Harvesting** — before any of it reaches your AI assistant.
 
 ## Why this exists
 
@@ -44,6 +44,11 @@ MCP (Model Context Protocol) servers have full access to your AI assistant's con
 - **Flood approval requests** to cause consent fatigue, then slip in destructive actions
 - **Replay OAuth tokens** across servers via audience mismatch (RFC 8707 violation)
 - **Inject fake notifications** (`tools/list_changed`) to trigger tool re-fetching for rug pulls
+- **Poison resource content** — `resources/read` responses can contain prompt injection payloads targeting the AI model
+- **Inject via prompt templates** — `prompts/get` returned messages are a direct LLM injection vector
+- **Hijack sampling requests** — malicious servers use `sampling/createMessage` to control LLM behavior with injected system prompts
+- **Harvest credentials via elicitation** — `elicitation/create` (MCP 2025-11-25) lets servers phish users for passwords, API keys, and tokens
+- **Flood resource update notifications** — rapid `notifications/resources/updated` events trigger re-reads of now-poisoned resources
 
 mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection before any data reaches your AI model.
 
@@ -84,13 +89,22 @@ mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection b
 | Excessive OAuth scope requests | OAuth Guard | OAUTH | High |
 | Suspicious OAuth redirect URIs | OAuth Guard | OAUTH | Critical |
 | Token audience mismatch / replay (RFC 8707) | OAuth Guard | TOKEN-REPLAY | Critical |
-| MCP sampling exploitation | Proxy | SAMPLING | High |
+| MCP sampling exploitation (message + system prompt injection) | Proxy | SAMPLING | High |
+| Elicitation credential harvesting (password, token, api_key fields) | Proxy | ELICITATION | Critical |
+| Elicitation message injection | Proxy | ELICITATION | Critical |
+| Resource content injection (`resources/read` responses) | Proxy | CMD-INJECT | Critical |
+| Resource description poisoning (`resources/list` responses) | Proxy | SMAC-5 | Critical |
+| Resource template description poisoning | Proxy | SMAC-5 | Critical |
+| Prompt message injection (`prompts/get` responses) | Proxy | SMAC-5 | Critical |
+| Prompt description poisoning (`prompts/list` responses) | Proxy | SMAC-5 | Critical |
+| Prompt argument schema injection | Proxy | SMAC-5 | Critical |
 | Session smuggling (orphaned/injected responses) | Flow Tracker | SESSION | Critical |
-| Cross-server data propagation | Flow Tracker | CROSS-SERVER | High |
+| Cross-server data propagation (JWTs, UUIDs, API keys) | Flow Tracker | CROSS-SERVER | High |
 | Context leakage between servers | Proxy | CONTEXT-LEAK | High |
 | Consent fatigue / approval flooding | Rate Limiter | RATE-LIMIT | High |
 | Burst flooding (rapid-fire tool calls) | Rate Limiter | RATE-LIMIT | Critical |
-| Notification event injection (tools/list_changed) | Rate Limiter | NOTIF-INJECT | Critical |
+| Notification event injection (tools/list_changed, resources/updated) | Rate Limiter | NOTIF-INJECT | Critical |
+| Windows command injection (cmd.exe, powershell -enc) | Input Sanitizer | CMD-INJECT | Critical |
 | Behavioral fingerprinting | Behavioral Monitor | DRIFT | High |
 | Scope creep (credential field access) | Behavioral Monitor | DRIFT | Critical |
 | Phase transitions (sudden behavior change) | Behavioral Monitor | DRIFT | Critical |
@@ -133,7 +147,7 @@ Wrap any MCP server command with `mcp-watchdog --verbose --`. The original serve
 
 ```bash
 # Proxy mode — wrap an upstream MCP server:
-mcp-watchdog --verbose -- npx -y @modelcontextprotocol/server-filesystem /tmp
+mcp-watchdog --verbose -- npx -y @modelcontextprotocol/server-filesystem ~/projects
 
 # Standalone scanner — pipe MCP messages through for testing:
 echo '{"jsonrpc":"2.0","method":"tools/list"}' | mcp-watchdog
@@ -175,7 +189,7 @@ The demo starts a real proxy wrapping a fake MCP server, sends clean traffic and
 
 ### Layer 0: SMAC-L3 Preprocessing
 
-Static pattern matching applied to every tool response. Strips injection patterns, zero-width characters, ANSI escape sequences, bidirectional text overrides, hidden instructions, and redacts leaked tokens/secrets before they reach the AI model.
+Static pattern matching applied to every MCP response — `tools/call`, `resources/read`, `prompts/get`, `prompts/list`, `resources/list`, and `resources/templates/list`. Strips injection patterns, zero-width characters, ANSI escape sequences, bidirectional text overrides, hidden instructions, and redacts leaked tokens/secrets before they reach the AI model.
 
 ### Layer 1: Behavioral Drift Detection
 
@@ -187,7 +201,7 @@ Shannon entropy analysis detects base64-encoded payloads, instruction-like langu
 
 ### Layer 3: Cross-Server Flow Tracking + Session Integrity
 
-Tracks tokens across servers to detect cross-server propagation. Monitors request/response message sequences to detect session smuggling and injected responses.
+Tracks tokens (JWTs, UUIDs, prefixed API keys like `ghp_*`, `sk-*`, `AKIA*`) across servers to detect cross-server propagation. Monitors request/response message sequences to detect session smuggling and injected responses.
 
 ### Layer 4: Filesystem Scope Enforcement
 
@@ -199,7 +213,7 @@ Hashes every tool definition on first load. Detects rug pulls (silent redefiniti
 
 ### Layer 6: Network Security + Injection Prevention
 
-SSRF protection blocks requests to cloud metadata endpoints (AWS IMDS, GCP, Azure), localhost, and internal networks. Command injection scanner catches shell metacharacters and injection patterns in tool arguments. SQL injection scanner detects UNION SELECT, DROP TABLE, and boolean-based injection. Reverse shell detector catches bash /dev/tcp, nc -e, mkfifo, and Python socket/subprocess patterns.
+SSRF protection blocks requests to cloud metadata endpoints (AWS IMDS, GCP, Azure), localhost, and internal networks. Command injection scanner catches shell metacharacters and injection patterns in tool arguments — including Windows-specific vectors (`cmd.exe /c`, `powershell -enc`, `system32` shell paths). SQL injection scanner detects UNION SELECT, DROP TABLE, and boolean-based injection. Reverse shell detector catches bash /dev/tcp, nc -e, mkfifo, and Python socket/subprocess patterns.
 
 ### Layer 7: Supply Chain + Auth + Email
 
@@ -211,7 +225,20 @@ False-error escalation detector catches fake error messages designed to trick AI
 
 ### Layer 9: Rate Limiting + Notification Guard
 
-Consent fatigue protection monitors tool call frequency per server. Detects both sustained flooding and burst patterns designed to desensitize user approval. Notification event injection detector catches rapid `notifications/tools/list_changed` events used to trigger rug pull re-fetches.
+Consent fatigue protection monitors tool call frequency per server. Detects both sustained flooding and burst patterns designed to desensitize user approval. Notification event injection detector catches rapid `notifications/tools/list_changed` and `notifications/resources/updated` events used to trigger rug pull re-fetches and resource re-reads.
+
+### Layer 10: MCP Protocol Method Scanning (2025-11-25 spec)
+
+Method-aware scanning for all MCP JSON-RPC methods:
+
+- **`resources/read` responses**: Full SMAC + injection scanning on resource content (prompt injection via resource poisoning)
+- **`resources/list` responses**: Description scanning for hidden instructions
+- **`resources/templates/list` responses**: Template description scanning
+- **`prompts/get` responses**: Message content scanning for injection in prompt templates
+- **`prompts/list` responses**: Prompt description and argument schema scanning
+- **`sampling/createMessage`**: Deep scanning of message array and `systemPrompt` for injection/exfiltration (not just presence alerting)
+- **`elicitation/create`** (new in 2025-11-25): Credential harvesting detection — flags schemas requesting `password`, `token`, `api_key`, `secret`, `ssh_key`, etc. Scans message text for social engineering and SMAC injection
+- **`initialize`**: Capability tracking for server and client feature declarations
 
 ## Running tests
 
@@ -226,7 +253,7 @@ pytest tests/test_e2e_proxy.py -v
 pytest tests/ -v --ignore=tests/test_e2e_proxy.py
 ```
 
-158+ tests across unit, integration, and end-to-end suites.
+208+ tests across unit, integration, and end-to-end suites.
 
 **Unit tests** test each detection module in isolation. **Integration tests** test the `MCPWatchdogProxy` class across multi-server sequences. **End-to-end tests** start the actual proxy binary as a subprocess, connect it to a fake MCP server, and push real JSON-RPC traffic through stdin/stdout.
 
@@ -238,24 +265,41 @@ AI Assistant <-> mcp-watchdog proxy <-> MCP Server(s)
                       |-- SMAC-L3 preprocessor (token redaction + ANSI stripping)
                       |-- Entropy analyzer
                       |-- Behavioral monitor
-                      |-- Flow tracker + session integrity
+                      |-- Flow tracker + session integrity (JWTs, UUIDs, API keys)
                       |-- Tool registry (rug pull detection)
                       |-- Tool shadow detector (shadowing + squatting)
                       |-- Parameter scanner
                       |-- URL filter (SSRF)
-                      |-- Input sanitizer (cmd + SQL + reverse shell)
+                      |-- Input sanitizer (cmd + SQL + reverse shell + Windows)
                       |-- Registry checker (supply chain)
                       |-- OAuth guard (+ token replay detection)
                       |-- Rate limiter (consent fatigue + notification injection)
                       |-- Email injection detector
                       |-- Escalation detector
                       |-- Semantic classifier (optional)
-                      +-- Scope enforcer (filesystem + symlink)
+                      |-- Scope enforcer (filesystem + symlink)
+                      |-- MCP method scanner:
+                      |     resources/read, resources/list, prompts/get,
+                      |     prompts/list, sampling/createMessage,
+                      |     elicitation/create, initialize
+                      +-- Capability tracker (server + client features)
 ```
 
 mcp-watchdog is a transparent JSON-RPC proxy. It does not modify clean responses - only strips malicious content and raises alerts.
 
 ## Changelog
+
+### 0.1.4
+
+- **MCP 2025-11-25 protocol coverage** — method-aware scanning for `resources/read`, `resources/list`, `resources/templates/list`, `prompts/get`, `prompts/list`, `sampling/createMessage` (deep scan), and `elicitation/create` (credential harvesting).
+- **P0 bug fixes** — scope enforcer and semantic classifier were instantiated but never called in the proxy pipeline; symlink escape detection was dead code (compared `resolve()` to itself).
+- **Elicitation credential harvesting** — detects `elicitation/create` requests with schemas requesting `password`, `token`, `api_key`, `secret`, `ssh_key`, `credit_card`, `ssn` fields.
+- **Deep sampling scan** — `sampling/createMessage` now scans the full message array and `systemPrompt` for SMAC injection, not just alerting on method presence.
+- **Cross-platform Windows support** — Windows command injection detection (`cmd.exe /c`, `powershell -enc`, system32 shell paths), OS-native path separators in scope enforcement, case-insensitive path matching on Windows, credential path regex matches both `/` and `\`.
+- **Flow tracker improvements** — now extracts JWTs, UUIDs, and prefixed API keys (`ghp_*`, `sk-*`, `AKIA*`) for cross-server propagation detection.
+- **Notification guard expanded** — `notifications/resources/updated` added to rate-limited notification set alongside `list_changed` types.
+- **Removed unused dependencies** — `websockets`, `fastapi`, `uvicorn` removed from install requirements.
+- **208+ tests** (up from 158) — 50 new tests across 9 new test files; all tests use `tmp_path` and `Path.home()` for cross-platform correctness.
 
 ### 0.1.3
 
