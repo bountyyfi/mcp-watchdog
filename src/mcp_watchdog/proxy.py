@@ -9,8 +9,9 @@ and per-server context isolation.
 """
 
 import json
+from typing import Any
 
-from mcp_watchdog.smac import SMACPreprocessor
+from mcp_watchdog.smac import SMACPreprocessor, SMACViolation
 from mcp_watchdog.entropy import EntropyAnalyzer
 from mcp_watchdog.behavioral import BehavioralMonitor
 from mcp_watchdog.flow_tracker import FlowTracker
@@ -48,13 +49,65 @@ class MCPWatchdogProxy:
         if self.verbose:
             print_alert(alert)
 
+    def _smac_process_value(
+        self, value: Any, server_id: str
+    ) -> tuple[Any, list[SMACViolation]]:
+        """Recursively apply SMAC to all string values in a JSON structure.
+
+        This is JSON-structure-safe: regexes only run on individual string
+        values, never across JSON keys/delimiters, so the JSON structure
+        cannot be corrupted.
+        """
+        if isinstance(value, str):
+            return self.smac.process(value, server_id)
+        if isinstance(value, dict):
+            violations: list[SMACViolation] = []
+            out = {}
+            for k, v in value.items():
+                cleaned_v, v_violations = self._smac_process_value(v, server_id)
+                out[k] = cleaned_v
+                violations.extend(v_violations)
+            return out, violations
+        if isinstance(value, list):
+            violations = []
+            out_list = []
+            for item in value:
+                cleaned_item, item_violations = self._smac_process_value(
+                    item, server_id
+                )
+                out_list.append(cleaned_item)
+                violations.extend(item_violations)
+            return out_list, violations
+        return value, []
+
+    def _smac_process_json(
+        self, raw: str, server_id: str
+    ) -> tuple[str, list[SMACViolation]]:
+        """Apply SMAC preprocessing to JSON text values only.
+
+        Parses the JSON first, then applies SMAC regexes to individual
+        string values.  This prevents regex patterns from matching across
+        JSON structural characters (quotes, braces, commas) which would
+        corrupt the JSON and break downstream MCP clients.
+
+        Falls back to raw-string processing for non-JSON messages.
+        """
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return self.smac.process(raw, server_id)
+
+        processed, violations = self._smac_process_value(data, server_id)
+        return json.dumps(processed, ensure_ascii=False), violations
+
     async def process_response(
         self, raw: str, server_id: str
     ) -> tuple[str, list[WatchdogAlert]]:
         all_alerts: list[WatchdogAlert] = []
 
-        # SMAC-L3 preprocessing (includes token redaction via SMAC-6)
-        cleaned, smac_violations = self.smac.process(raw, server_id)
+        # SMAC-L3 preprocessing — JSON-aware so regexes never corrupt
+        # the JSON structure (only individual string values are cleaned)
+        cleaned, smac_violations = self._smac_process_json(raw, server_id)
         for v in smac_violations:
             self._emit(
                 WatchdogAlert(
