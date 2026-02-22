@@ -371,8 +371,54 @@ class MCPWatchdogProxy:
                                     all_alerts,
                                 )
 
-            # Sampling interception (A4)
+            # --- Prompt content checks (prompts/get response) ---
+            # The result has a "messages" array with role/content pairs
+            if isinstance(result, dict) and "messages" in result:
+                for pm in result["messages"]:
+                    content = pm.get("content", {})
+                    # content can be a string or {"type":"text","text":"..."}
+                    text = ""
+                    if isinstance(content, str):
+                        text = content
+                    elif isinstance(content, dict):
+                        text = content.get("text", "")
+                    if text:
+                        _, pv = self.smac.process(text, server_id)
+                        for v in pv:
+                            self._emit(
+                                WatchdogAlert(
+                                    severity="critical",
+                                    server_id=server_id,
+                                    rule=v.rule,
+                                    detail=f"Prompt message injection: {v.content_preview}",
+                                ),
+                                all_alerts,
+                            )
+                        # Check for injection patterns in prompt content
+                        pm_inj = self.input_sanitizer.scan_arguments(
+                            server_id, "prompt_content", {"text": text},
+                        )
+                        for ia in pm_inj:
+                            rule = "CMD-INJECT"
+                            if ia.reason == "sql_injection":
+                                rule = "SQL-INJECT"
+                            elif ia.reason == "reverse_shell":
+                                rule = "REVERSE-SHELL"
+                            self._emit(
+                                WatchdogAlert(
+                                    severity=ia.severity,
+                                    server_id=server_id,
+                                    rule=rule,
+                                    detail=f"Prompt content: {ia.detail}",
+                                ),
+                                all_alerts,
+                            )
+
             method = parsed.get("method", "")
+            params = parsed.get("params", {})
+
+            # --- Sampling deep scan (A4) ---
+            # Server-initiated sampling/createMessage is a direct LLM control vector
             if method == "sampling/createMessage":
                 self._emit(
                     WatchdogAlert(
@@ -383,6 +429,90 @@ class MCPWatchdogProxy:
                     ),
                     all_alerts,
                 )
+                # Deep-scan the message content for injection
+                if isinstance(params, dict):
+                    messages = params.get("messages", [])
+                    for sm in messages:
+                        content = sm.get("content", {})
+                        text = ""
+                        if isinstance(content, str):
+                            text = content
+                        elif isinstance(content, dict):
+                            text = content.get("text", "")
+                        if text:
+                            _, sv = self.smac.process(text, server_id)
+                            for v in sv:
+                                self._emit(
+                                    WatchdogAlert(
+                                        severity="critical",
+                                        server_id=server_id,
+                                        rule=v.rule,
+                                        detail=f"Sampling message injection: {v.content_preview}",
+                                    ),
+                                    all_alerts,
+                                )
+                    # Scan system prompt if present
+                    sys_prompt = params.get("systemPrompt", "")
+                    if sys_prompt:
+                        _, spv = self.smac.process(sys_prompt, server_id)
+                        for v in spv:
+                            self._emit(
+                                WatchdogAlert(
+                                    severity="critical",
+                                    server_id=server_id,
+                                    rule=v.rule,
+                                    detail=f"Sampling system prompt injection: {v.content_preview}",
+                                ),
+                                all_alerts,
+                            )
+
+            # --- Elicitation scanning (2025-11-25 spec) ---
+            # Server asks client to collect user input — phishing/credential harvesting vector
+            if method == "elicitation/create":
+                self._emit(
+                    WatchdogAlert(
+                        severity="high",
+                        server_id=server_id,
+                        rule="ELICITATION",
+                        detail="Server initiated elicitation/create request",
+                    ),
+                    all_alerts,
+                )
+                if isinstance(params, dict):
+                    # Check message for social engineering
+                    elicit_msg = params.get("message", "")
+                    if elicit_msg:
+                        _, ev = self.smac.process(elicit_msg, server_id)
+                        for v in ev:
+                            self._emit(
+                                WatchdogAlert(
+                                    severity="critical",
+                                    server_id=server_id,
+                                    rule=v.rule,
+                                    detail=f"Elicitation message injection: {v.content_preview}",
+                                ),
+                                all_alerts,
+                            )
+                    # Check schema for credential-harvesting field names
+                    schema = params.get("requestedSchema", {})
+                    if isinstance(schema, dict):
+                        props = schema.get("properties", {})
+                        SENSITIVE_ELICIT_FIELDS = {
+                            "password", "token", "api_key", "secret",
+                            "credential", "private_key", "access_token",
+                            "ssh_key", "credit_card", "ssn",
+                        }
+                        for field_name in props:
+                            if field_name.lower() in SENSITIVE_ELICIT_FIELDS:
+                                self._emit(
+                                    WatchdogAlert(
+                                        severity="critical",
+                                        server_id=server_id,
+                                        rule="ELICITATION",
+                                        detail=f"Credential harvesting: elicitation requests '{field_name}' field",
+                                    ),
+                                    all_alerts,
+                                )
 
             # Notification event injection check (all notification types)
             if method.startswith("notifications/"):

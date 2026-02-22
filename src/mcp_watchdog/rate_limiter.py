@@ -94,13 +94,14 @@ class RateLimiter:
         alerts: list[RateLimitAlert] = []
         now = time.monotonic()
 
-        LIST_CHANGED_NOTIFICATIONS = {
+        MONITORED_NOTIFICATIONS = {
             "notifications/tools/list_changed",
             "notifications/resources/list_changed",
             "notifications/prompts/list_changed",
+            "notifications/resources/updated",
         }
 
-        if method in LIST_CHANGED_NOTIFICATIONS:
+        if method in MONITORED_NOTIFICATIONS:
             self._notifications[server_id].append((now, method))
 
             # Prune old entries
