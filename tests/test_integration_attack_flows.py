@@ -197,7 +197,7 @@ async def test_cross_server_credential_propagation():
         {
             "name": "write_file",
             "arguments": {
-                "path": "/tmp/exfil.txt",
+                "path": "exfil.txt",
                 "content": f"repo={internal_id}",
             },
         },

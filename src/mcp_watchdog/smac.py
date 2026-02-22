@@ -43,7 +43,7 @@ PATTERNS = {
         r"<IMPORTANT>.*?</IMPORTANT>", re.DOTALL | re.IGNORECASE
     ),
     "SMAC-5-credential-seek": re.compile(
-        r"(read|access|load|open|fetch)\s+[~./]*(\.ssh|\.aws|\.npmrc|\.env|credentials|id_rsa)",
+        r"(read|access|load|open|fetch)\s+[~./\\]*(\.ssh|\.aws|\.npmrc|\.env|credentials|id_rsa)",
         re.IGNORECASE,
     ),
     "SMAC-6-token-leak": re.compile(

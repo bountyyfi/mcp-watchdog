@@ -26,7 +26,7 @@ CROSS_SERVER_PATTERNS = re.compile(
 )
 
 CREDENTIAL_PATTERNS = re.compile(
-    r"[~./]*(\.ssh/|\.aws/|\.npmrc|\.env\b|id_rsa|id_ed25519|credentials)",
+    r"[~./\\]*(\.ssh[/\\]|\.aws[/\\]|\.npmrc|\.env\b|id_rsa|id_ed25519|credentials)",
     re.IGNORECASE,
 )
 
