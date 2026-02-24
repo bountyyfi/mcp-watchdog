@@ -132,7 +132,8 @@ class URLFilter:
                     severity="high",
                 )
 
-        return None
+        # Check for sensitive data exfiltration via URL
+        return self.check_exfiltration(url, server_id)
 
     def check_exfiltration(self, url: str, server_id: str) -> SSRFAlert | None:
         """Detect sensitive data embedded in URL query parameters."""
@@ -163,8 +164,4 @@ class URLFilter:
             alert = self.check_url(url, server_id)
             if alert:
                 alerts.append(alert)
-            # Check for data exfiltration via URL params
-            exfil = self.check_exfiltration(url, server_id)
-            if exfil:
-                alerts.append(exfil)
         return alerts
