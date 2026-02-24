@@ -63,7 +63,14 @@ mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection b
 | Bidirectional text overrides (LRE/RLO/LRI) | SMAC-L3 | SMAC-1 | High |
 | Markdown reference link exfiltration | SMAC-L3 | SMAC-2 | High |
 | Credential-seeking patterns | SMAC-L3 | SMAC-5 | Critical |
-| Token/secret leakage (GitHub, AWS, Slack, JWT, OpenAI) | SMAC-L3 | SMAC-6 | Critical |
+| Token/secret leakage (GitHub, AWS, Slack, JWT, OpenAI, Stripe, Discord, npm, PyPI, Supabase, Sendgrid, Twilio, Vault, Datadog, GCP, Azure, PEM keys) | SMAC-L3 | SMAC-6 | Critical |
+| Homoglyph `<IMPORTANT>` injection (Greek Ι, Cyrillic А) | SMAC-L3 | SMAC-5 | Critical |
+| HTML-encoded `&lt;IMPORTANT&gt;` injection | SMAC-L3 | SMAC-5 | Critical |
+| Role injection markers (`[SYSTEM]:`, `[ADMIN]:`, `[ASSISTANT]:`) | SMAC-L3 | SMAC-5 | Critical |
+| URL-encoded zero-width characters (`%E2%80%8B`) | SMAC-L3 | SMAC-1 | High |
+| Double-encoded HTML entities (`&amp;#x200b;`) | SMAC-L3 | SMAC-1 | High |
+| Double-encoded path traversal (`..%252f`) | Input Sanitizer | CMD-INJECT | High |
+| Token exfiltration via URL params (Stripe, npm, PyPI, Sendgrid, Vault, Datadog, Azure keys) | URL Filter | EXFIL | Critical |
 | Rug Pull (silent tool redefinition) | Tool Registry | RUG-PULL | Critical |
 | Tool removal after establishing trust | Tool Registry | RUG-PULL | High |
 | Tool Shadowing (cross-server desc pollution) | Tool Shadow | SHADOW | Critical |
@@ -119,11 +126,11 @@ mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection b
 
 mcp-watchdog implements the SMAC (Structured MCP Audit Controls) Level 3 preprocessing standard:
 
-- **SMAC-1**: Strip HTML comments, zero-width unicode, ANSI escape sequences, and bidirectional text overrides
+- **SMAC-1**: Strip HTML comments, zero-width unicode (raw, JSON-escaped, HTML entities, URL-encoded, double-encoded), ANSI escape sequences, and bidirectional text overrides
 - **SMAC-2**: Strip markdown reference links used for data exfiltration
 - **SMAC-4**: Log all violations with content hashes and timestamps
-- **SMAC-5**: Detect and strip `<IMPORTANT>` instruction blocks and credential-seeking patterns
-- **SMAC-6**: Detect and redact leaked tokens/secrets (GitHub PATs, AWS keys, Slack tokens, JWTs, OpenAI keys)
+- **SMAC-5**: Detect and strip `<IMPORTANT>` instruction blocks (with attributes, unclosed tags, homoglyph variants, HTML-encoded forms), `[SYSTEM]`/`[ADMIN]`/`[ASSISTANT]` role injection, and credential-seeking patterns
+- **SMAC-6**: Detect and redact leaked tokens/secrets (GitHub PATs, AWS keys, Slack tokens, JWTs, OpenAI keys, Stripe keys, Discord bot tokens, npm/PyPI tokens, Supabase, Sendgrid, Twilio, Vault, Datadog, GCP service account keys, Azure connection strings, PEM private keys)
 
 ## Install
 
@@ -189,7 +196,7 @@ The demo starts a real proxy wrapping a fake MCP server, sends clean traffic and
 
 ### Layer 0: SMAC-L3 Preprocessing
 
-Static pattern matching applied to every MCP response — `tools/call`, `resources/read`, `prompts/get`, `prompts/list`, `resources/list`, and `resources/templates/list`. Strips injection patterns, zero-width characters, ANSI escape sequences, bidirectional text overrides, hidden instructions, and redacts leaked tokens/secrets before they reach the AI model.
+Static pattern matching applied to every MCP response — `tools/call`, `resources/read`, `prompts/get`, `prompts/list`, `resources/list`, and `resources/templates/list`. Strips injection patterns (including homoglyph, HTML-encoded, and role-injection variants), zero-width characters (raw, JSON-escaped, HTML entities, URL-encoded, double-encoded), ANSI escape sequences, bidirectional text overrides, hidden instructions, and redacts 30+ leaked token/secret patterns before they reach the AI model.
 
 ### Layer 1: Behavioral Drift Detection
 
@@ -253,7 +260,7 @@ pytest tests/test_e2e_proxy.py -v
 pytest tests/ -v --ignore=tests/test_e2e_proxy.py
 ```
 
-208+ tests across unit, integration, and end-to-end suites.
+253+ tests across unit, integration, and end-to-end suites.
 
 **Unit tests** test each detection module in isolation. **Integration tests** test the `MCPWatchdogProxy` class across multi-server sequences. **End-to-end tests** start the actual proxy binary as a subprocess, connect it to a fake MCP server, and push real JSON-RPC traffic through stdin/stdout.
 
@@ -289,6 +296,17 @@ mcp-watchdog is a transparent JSON-RPC proxy. It does not modify clean responses
 
 ## Changelog
 
+### 0.1.6
+
+- **26 security audit gap fixes** — comprehensive hardening across all detection layers.
+- **SMAC-6 expanded to 30+ token patterns** — added Stripe (`sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`), PEM private keys (RSA, EC, DSA, OPENSSH), Discord bot tokens, npm (`npm_`), PyPI (`pypi-`), Supabase (`sbp_`), Sendgrid (`SG.`), Twilio (`SK`), HashiCorp Vault (`hvs.`, `s.`), Datadog (`dd[ap]_`), Heroku UUIDs, GCP service account keys (`private_key_id`), and Azure connection strings (`AccountKey=`, `SharedAccessKey=`).
+- **SMAC-5 bypass hardening** — catches `<IMPORTANT>` with HTML attributes, unclosed tags (to end-of-string), Unicode homoglyph variants (Greek Ι U+0399, Cyrillic І U+0406), HTML-encoded `&lt;IMPORTANT&gt;` tags, and `[SYSTEM]:`/`[ADMIN]:`/`[ASSISTANT]:` role injection markers.
+- **SMAC-1 multi-encoding bypass fixes** — strips URL-encoded ZWSP (`%E2%80%8B`, `%E2%80%8C`, `%E2%80%8D`), double-encoded HTML entities (`&amp;#x200b;`, `&amp;#8203;`), and URL-encoded bidi overrides (`%E2%80%8E`, `%E2%80%8F`).
+- **Input sanitizer improvements** — double-encoded path traversal detection (`..%252f`, `%2e%2e/`), reduced false positives on CSS (`color: red;`) and pipe-delimited data (`name|age|city`) by gating shell metacharacter detection on command context.
+- **URL filter exfiltration expansion** — detects Stripe, npm, PyPI, Sendgrid, Vault, Datadog, Azure tokens and `api_key=`/`key=`/`credential=` parameters in URLs.
+- **Stream buffer crash fix** — `sys.maxsize` StreamReader limit prevents proxy crash on large MCP responses (previously crashed on >64KB messages).
+- **253+ tests** (up from 208+) — 45 new tests covering all audit gap fixes across 3 new/updated test files.
+
 ### 0.1.5
 
 - **MCP 2025-11-25 protocol coverage** — method-aware scanning for `resources/read`, `resources/list`, `resources/templates/list`, `prompts/get`, `prompts/list`, `sampling/createMessage` (deep scan), and `elicitation/create` (credential harvesting).
@@ -299,7 +317,7 @@ mcp-watchdog is a transparent JSON-RPC proxy. It does not modify clean responses
 - **Flow tracker improvements** — now extracts JWTs, UUIDs, and prefixed API keys (`ghp_*`, `sk-*`, `AKIA*`) for cross-server propagation detection.
 - **Notification guard expanded** — `notifications/resources/updated` added to rate-limited notification set alongside `list_changed` types.
 - **Removed unused dependencies** — `websockets`, `fastapi`, `uvicorn` removed from install requirements.
-- **208+ tests** (up from 158) — 50 new tests across 9 new test files; all tests use `tmp_path` and `Path.home()` for cross-platform correctness.
+- **208+ tests** (up from 158) — 50 new tests across 9 new test files; all tests use `tmp_path` and `Path.home()` for cross-platform correctness. (Now 253+ with 0.1.6 additions.)
 
 ### 0.1.3
 
