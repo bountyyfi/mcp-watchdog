@@ -13,9 +13,31 @@ import json
 import sys
 import threading
 
-# 10 MiB – MCP messages (especially tool-list and search results) can
-# exceed the default 64 KiB asyncio StreamReader limit on a single line.
-_STREAM_LIMIT = 10 * 1024 * 1024
+# Buffer hint for asyncio StreamReader.  Most MCP messages fit within this;
+# oversized lines are handled gracefully by _read_line() below.
+_STREAM_LIMIT = 10 * 1024 * 1024  # 10 MiB
+
+
+async def _read_line(reader: asyncio.StreamReader) -> bytes:
+    """Read a full newline-terminated line regardless of size.
+
+    Uses readuntil() so that lines larger than the StreamReader buffer
+    limit are drained in chunks instead of crashing the proxy.
+    """
+    try:
+        return await reader.readuntil(b"\n")
+    except asyncio.IncompleteReadError as exc:
+        return exc.partial
+    except asyncio.LimitOverrunError as exc:
+        data = await reader.read(exc.consumed)
+        while True:
+            try:
+                data += await reader.readuntil(b"\n")
+                return data
+            except asyncio.IncompleteReadError as exc2:
+                return data + exc2.partial
+            except asyncio.LimitOverrunError as exc2:
+                data += await reader.read(exc2.consumed)
 
 
 async def create_stdin_reader() -> asyncio.StreamReader:
@@ -56,11 +78,11 @@ async def read_message(reader: asyncio.StreamReader) -> str | None:
     Returns None on EOF or cancellation.
     """
     try:
-        line = await reader.readline()
+        line = await _read_line(reader)
         if not line:
             return None
         return line.decode("utf-8").strip()
-    except (asyncio.CancelledError, ConnectionError, EOFError, ValueError):
+    except (asyncio.CancelledError, ConnectionError, EOFError):
         return None
 
 

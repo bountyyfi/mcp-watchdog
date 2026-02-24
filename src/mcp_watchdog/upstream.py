@@ -6,9 +6,33 @@ via newline-delimited JSON over its stdin/stdout pipes.
 
 import asyncio
 
-# 10 MiB – MCP tool responses (e.g. search_files) can easily exceed the
-# default 64 KiB asyncio StreamReader limit on a single JSON-RPC line.
-_STREAM_LIMIT = 10 * 1024 * 1024
+# Buffer hint for asyncio StreamReader.  Most MCP messages fit within this;
+# oversized lines are handled gracefully by _read_line() below.
+_STREAM_LIMIT = 10 * 1024 * 1024  # 10 MiB
+
+
+async def _read_line(reader: asyncio.StreamReader) -> bytes:
+    """Read a full newline-terminated line regardless of size.
+
+    Uses readuntil() so that lines larger than the StreamReader buffer
+    limit are drained in chunks instead of crashing the proxy.
+    """
+    try:
+        return await reader.readuntil(b"\n")
+    except asyncio.IncompleteReadError as exc:
+        # EOF before newline — return whatever was buffered.
+        return exc.partial
+    except asyncio.LimitOverrunError as exc:
+        # Line exceeds buffer limit — drain and keep reading.
+        data = await reader.read(exc.consumed)
+        while True:
+            try:
+                data += await reader.readuntil(b"\n")
+                return data
+            except asyncio.IncompleteReadError as exc2:
+                return data + exc2.partial
+            except asyncio.LimitOverrunError as exc2:
+                data += await reader.read(exc2.consumed)
 
 
 class UpstreamConnection:
@@ -39,11 +63,11 @@ class UpstreamConnection:
         if not self._process or not self._process.stdout:
             return None
         try:
-            line = await self._process.stdout.readline()
+            line = await _read_line(self._process.stdout)
             if not line:
                 return None
             return line.decode("utf-8").strip()
-        except (asyncio.CancelledError, ConnectionError, ValueError):
+        except (asyncio.CancelledError, ConnectionError):
             return None
 
     @property
