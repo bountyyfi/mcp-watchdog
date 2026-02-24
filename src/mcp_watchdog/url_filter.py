@@ -56,14 +56,21 @@ EXFIL_PARAM_PATTERNS = re.compile(
     r"gho_[a-zA-Z0-9]{20,}|"
     r"AKIA[0-9A-Z]{16}|"
     r"sk-[a-zA-Z0-9]{20,}|"
+    r"sk-proj-[a-zA-Z0-9\-_]{20,}|"
+    r"sk-ant-[a-zA-Z0-9\-_]{20,}|"
     r"sk_live_[a-zA-Z0-9]{20,}|"
     r"sk_test_[a-zA-Z0-9]{20,}|"
+    r"rk_live_[a-zA-Z0-9]{20,}|"
+    r"rk_test_[a-zA-Z0-9]{20,}|"
     r"eyJ[a-zA-Z0-9\-_]{20,}\.eyJ|"
     r"xoxb-[0-9]{10,}|"
     r"xoxp-[0-9]{10,}|"
+    r"xoxa-[0-9]{10,}|"
+    r"xoxr-[0-9]{10,}|"
     r"glpat-[a-zA-Z0-9\-_]{20,}|"
     r"npm_[a-zA-Z0-9]{36,}|"
     r"pypi-[a-zA-Z0-9\-_]{20,}|"
+    r"sbp_[a-zA-Z0-9]{20,}|"
     r"SG\.[a-zA-Z0-9\-_]{22,}|"
     r"hvs\.[a-zA-Z0-9\-_]{20,}|"
     r"dd[ap]_[a-zA-Z0-9]{20,}|"
@@ -74,10 +81,24 @@ EXFIL_PARAM_PATTERNS = re.compile(
     r"secret=[^&]{8,}|"
     r"token=[^&]{20,}|"
     r"api_?key=[^&]{20,}|"
-    r"key=[^&]{20,}|"
+    r"access_key=[^&]{20,}|"
+    r"secret_key=[^&]{20,}|"
+    r"private_key=[^&]{20,}|"
     r"credential=[^&]{8,}|"
-    r"AccountKey=[A-Za-z0-9/+=]{40,})"
+    r"AccountKey=[A-Za-z0-9/+=]{40,}|"
+    r"SharedAccessKey=[A-Za-z0-9/+=]{40,})"
 )
+
+# Detect base64-encoded tokens in URL parameters
+# Matches: data=<base64>, payload=<base64>, q=<base64> where the value is
+# long enough and has high base64-char density
+BASE64_EXFIL_PARAM = re.compile(
+    r"[?&]([a-zA-Z_]{1,20})=([A-Za-z0-9+/\-_]{40,}={0,2})(?:&|$)"
+)
+
+# Params that are commonly base64 but not secrets (e.g. pagination cursors)
+BENIGN_B64_PARAMS = {"cursor", "page_token", "pagetoken", "continuation",
+                     "next", "offset", "state", "nonce", "code_challenge"}
 
 
 @dataclass
@@ -151,6 +172,36 @@ class URLFilter:
                         url=url[:120],
                         detail=f"Sensitive data in URL parameters (possible exfiltration): {url[:80]}",
                     )
+
+            # Check for base64-encoded tokens in URL query params
+            full_url = url
+            for match in BASE64_EXFIL_PARAM.finditer(full_url):
+                param_name = match.group(1).lower()
+                param_value = match.group(2)
+                # Skip known benign base64 params
+                if param_name in BENIGN_B64_PARAMS:
+                    continue
+                # Try to decode and check if it contains token-like patterns
+                try:
+                    import base64
+                    padded = param_value + "=" * (-len(param_value) % 4)
+                    # Try standard then URL-safe base64
+                    decoded = None
+                    for decoder in (base64.b64decode, base64.urlsafe_b64decode):
+                        try:
+                            decoded = decoder(padded).decode("utf-8", errors="ignore")
+                            break
+                        except Exception:
+                            continue
+                    if decoded and EXFIL_PARAM_PATTERNS.search(decoded):
+                        return SSRFAlert(
+                            reason="url_exfiltration",
+                            server_id=server_id,
+                            url=url[:120],
+                            detail=f"Base64-encoded sensitive data in URL param '{match.group(1)}' (possible exfiltration)",
+                        )
+                except Exception:
+                    pass
         except Exception:
             pass
         return None

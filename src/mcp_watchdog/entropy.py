@@ -64,19 +64,45 @@ def max_json_depth(obj: object, depth: int = 0) -> int:
     return depth
 
 
+# Regex to find base64-like chunks in larger text (min 16 chars of base64 alphabet)
+BASE64_CHUNK_RE = re.compile(
+    r"[A-Za-z0-9+/]{16,}={0,2}"
+)
+
+# URL-safe base64 variant
+BASE64_URL_CHUNK_RE = re.compile(
+    r"[A-Za-z0-9\-_]{16,}={0,2}"
+)
+
+
 def looks_like_base64(s: str) -> bool:
-    if len(s) < 20:
+    if len(s) < 16:
         return False
     # Check if the string has base64-like characteristics
-    b64_chars = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=")
+    b64_chars = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=-_")
     non_b64 = sum(1 for c in s if c not in b64_chars)
     if non_b64 / len(s) > 0.1:
         return False
+    # Try standard base64
     try:
-        base64.b64decode(s, validate=True)
-        return True
-    except Exception:
+        # Pad to multiple of 4
+        padded = s + "=" * (-len(s) % 4)
+        decoded = base64.b64decode(padded)
+        # Verify it's not just ASCII text that happens to be valid base64
+        if len(decoded) >= 12:
+            return True
         return False
+    except Exception:
+        pass
+    # Try URL-safe base64
+    try:
+        padded = s + "=" * (-len(s) % 4)
+        decoded = base64.urlsafe_b64decode(padded)
+        if len(decoded) >= 12:
+            return True
+    except Exception:
+        pass
+    return False
 
 
 class EntropyAnalyzer:
@@ -141,22 +167,41 @@ class EntropyAnalyzer:
         return alerts
 
     def _check_strings(
-        self, obj: object, alerts: list[EntropyAlert], server_id: str
+        self, obj: object, alerts: list[EntropyAlert], server_id: str,
+        _b64_accumulator: list[str] | None = None,
     ) -> None:
+        top_level = _b64_accumulator is None
+        if _b64_accumulator is None:
+            _b64_accumulator = []
+
         if isinstance(obj, str):
-            # Check for base64-like tokens within the string
-            tokens = obj.split()
-            for token in tokens:
-                if looks_like_base64(token):
-                    alerts.append(
-                        EntropyAlert(
-                            reason="high_entropy_field",
-                            server_id=server_id,
-                            detail="Base64-like content detected in response",
-                            severity="medium",
-                        )
+            # Scan for base64 chunks embedded anywhere in the string
+            found_b64 = False
+            for pattern in (BASE64_CHUNK_RE, BASE64_URL_CHUNK_RE):
+                for match in pattern.finditer(obj):
+                    chunk = match.group()
+                    if looks_like_base64(chunk):
+                        _b64_accumulator.append(chunk)
+                        if len(chunk) >= 20:
+                            found_b64 = True
+
+            if found_b64:
+                alerts.append(
+                    EntropyAlert(
+                        reason="high_entropy_field",
+                        server_id=server_id,
+                        detail="Base64-encoded content detected in response",
+                        severity="medium",
                     )
-                    return
+                )
+                return
+
+            # Also check whitespace-separated tokens for standalone b64
+            if not found_b64:
+                for token in obj.split():
+                    if looks_like_base64(token):
+                        _b64_accumulator.append(token)
+
             e = shannon_entropy(obj)
             if e > self.HIGH_ENTROPY_THRESHOLD and len(obj) > 50:
                 alerts.append(
@@ -169,7 +214,23 @@ class EntropyAnalyzer:
                 )
         elif isinstance(obj, dict):
             for v in obj.values():
-                self._check_strings(v, alerts, server_id)
+                self._check_strings(v, alerts, server_id, _b64_accumulator)
         elif isinstance(obj, list):
             for v in obj:
-                self._check_strings(v, alerts, server_id)
+                self._check_strings(v, alerts, server_id, _b64_accumulator)
+
+        # At the top level, check if accumulated small b64 segments are suspicious
+        if top_level and len(_b64_accumulator) >= 2:
+            total_b64_len = sum(len(s) for s in _b64_accumulator)
+            if total_b64_len >= 32:
+                # Only add if we haven't already flagged a b64 alert
+                if not any(a.reason == "high_entropy_field" and "Base64" in a.detail
+                           for a in alerts):
+                    alerts.append(
+                        EntropyAlert(
+                            reason="high_entropy_field",
+                            server_id=server_id,
+                            detail=f"Multiple base64 segments detected ({len(_b64_accumulator)} segments, {total_b64_len} chars total)",
+                            severity="medium",
+                        )
+                    )

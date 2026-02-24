@@ -75,6 +75,7 @@ mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection b
 | Unlabeled secret key detection (`secret_key:`, `private_key:`) | SMAC-L3 | SMAC-6 | Critical |
 | Token exfiltration via URL params (Stripe, npm, PyPI, Sendgrid, Vault, Datadog, Discord, Azure keys) | URL Filter | EXFIL | Critical |
 | Rug Pull (silent tool redefinition) | Tool Registry | RUG-PULL | Critical |
+| Sneaky tool addition (new tools after initial registration) | Tool Registry | RUG-PULL | High |
 | Tool removal after establishing trust | Tool Registry | RUG-PULL | High |
 | Tool Shadowing (cross-server desc pollution) | Tool Shadow | SHADOW | Critical |
 | Tool Name Squatting (duplicate names across servers) | Tool Shadow | SHADOW | Critical |
@@ -86,18 +87,22 @@ mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection b
 | SSRF to cloud metadata (AWS/GCP/Azure IMDS) | URL Filter | SSRF | Critical |
 | SSRF to localhost / internal networks | URL Filter | SSRF | High |
 | Data exfiltration via URL parameters (Slack CVE-2025-34072) | URL Filter | EXFIL | Critical |
+| Base64-encoded token exfiltration in URL params | URL Filter | EXFIL | Critical |
 | Shell metacharacter injection | Input Sanitizer | CMD-INJECT | Critical |
 | Command injection patterns | Input Sanitizer | CMD-INJECT | Critical |
 | Path traversal attacks | Input Sanitizer | CMD-INJECT | High |
 | SQL injection (UNION SELECT, DROP TABLE, etc.) | Input Sanitizer | SQL-INJECT | Critical |
 | Reverse shell patterns (bash /dev/tcp, nc -e, mkfifo) | Input Sanitizer | REVERSE-SHELL | Critical |
 | Email header injection (BCC exfiltration) | Tool Shadow | EMAIL-INJECT | Critical |
+| Email comma injection (multiple recipients in to/cc fields) | Tool Shadow | EMAIL-INJECT | Critical |
 | False-error escalation (fake errors triggering privilege escalation) | Tool Shadow | ESCALATION | High |
 | Supply chain typosquatting | Registry Checker | SUPPLY-CHAIN | Critical |
 | Known malicious server patterns | Registry Checker | SUPPLY-CHAIN | Critical |
 | OAuth authorization endpoint injection (CVE-2025-6514) | OAuth Guard | OAUTH | Critical |
 | Excessive OAuth scope requests | OAuth Guard | OAUTH | High |
 | Suspicious OAuth redirect URIs | OAuth Guard | OAUTH | Critical |
+| OAuth javascript:/data:/vbscript: redirect URIs | OAuth Guard | OAUTH | Critical |
+| OAuth open redirect via query parameters | OAuth Guard | OAUTH | Critical |
 | Token audience mismatch / replay (RFC 8707) | OAuth Guard | TOKEN-REPLAY | Critical |
 | MCP sampling exploitation (message + system prompt injection) | Proxy | SAMPLING | High |
 | Elicitation credential harvesting (password, token, api_key fields) | Proxy | ELICITATION | Critical |
@@ -117,7 +122,10 @@ mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection b
 | Windows command injection (cmd.exe, powershell -enc) | Input Sanitizer | CMD-INJECT | Critical |
 | Behavioral fingerprinting | Behavioral Monitor | DRIFT | High |
 | Scope creep (credential field access) | Behavioral Monitor | DRIFT | Critical |
+| Credential path access in tool arguments | Behavioral Monitor | BEHAVIORAL | Critical |
 | Phase transitions (sudden behavior change) | Behavioral Monitor | DRIFT | Critical |
+| Base64 payload detection (embedded and standalone) | Entropy Analyzer | ENTROPY | Medium |
+| Multiple base64 segment aggregation | Entropy Analyzer | ENTROPY | Medium |
 | Steganographic C2 payloads | Entropy Analyzer | ENTROPY | Medium |
 | Hidden instructions in tool responses | Entropy + Semantic | ENTROPY | High |
 | Structural anomalies (unusual JSON depth) | Entropy Analyzer | ENTROPY | Low |
@@ -263,7 +271,7 @@ pytest tests/test_e2e_proxy.py -v
 pytest tests/ -v --ignore=tests/test_e2e_proxy.py
 ```
 
-263+ tests across unit, integration, and end-to-end suites.
+273+ tests across unit, integration, and end-to-end suites.
 
 **Unit tests** test each detection module in isolation. **Integration tests** test the `MCPWatchdogProxy` class across multi-server sequences. **End-to-end tests** start the actual proxy binary as a subprocess, connect it to a fake MCP server, and push real JSON-RPC traffic through stdin/stdout.
 
@@ -298,6 +306,18 @@ AI Assistant <-> mcp-watchdog proxy <-> MCP Server(s)
 mcp-watchdog is a transparent JSON-RPC proxy. It does not modify clean responses - only strips malicious content and raises alerts.
 
 ## Changelog
+
+### 0.1.9
+
+- **Tool Shadow hardening** — expanded override/replace instruction detection to catch `disregard`, `substitute`, `supersede`, `don't use the other`, and `use this instead of` patterns. CC field now checked alongside BCC for email header injection.
+- **Email comma injection detection** — detects multiple recipients injected via commas in `to`, `cc`, `bcc`, and other recipient fields (e.g. `victim@example.com, attacker@evil.com`).
+- **OAuth `javascript:`/`data:`/`vbscript:` URI blocking** — redirect URIs using dangerous schemes are now caught. Open redirect detection via query parameters (`redirect_url=`, `return_to=`, `next=`, etc.) added.
+- **Behavioral monitor credential path access** — tool call arguments accessing `.ssh/`, `.aws/`, `.env`, `id_rsa`, `credentials.json`, `.kube/config`, etc. now trigger critical alerts. Wired into proxy request pipeline (was previously imported but never called).
+- **Entropy analyzer base64 overhaul** — relaxed base64 validation (pad-tolerant, URL-safe variant support), regex-based chunk extraction finds base64 embedded in larger strings, and multiple small base64 segments are aggregated and flagged when total exceeds 32 chars.
+- **Registry checker expansion** — allowlist expanded from 12 to 55+ known-good servers (official + widely-used community servers). Substring-based impersonation detection added. Unknown server alerts now include nearest known-good match with edit distance.
+- **Rug pull sneaky tool addition** — new tools appearing after initial `tools/list` registration are now flagged as `tool_added` (previously only redefinition and removal were caught).
+- **URL filter base64 exfil detection** — base64-encoded tokens in URL query parameters are decoded and checked against the full exfil pattern set. Added `sk-proj-`, `sk-ant-`, `rk_live_`, `rk_test_`, `xoxa-`, `xoxr-`, `sbp_`, `SharedAccessKey=` patterns.
+- **273+ tests** (up from 263+).
 
 ### 0.1.7
 

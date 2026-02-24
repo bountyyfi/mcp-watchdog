@@ -14,6 +14,9 @@ SUSPICIOUS_REDIRECT_PATTERNS = [
     re.compile(r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)", re.IGNORECASE),
     re.compile(r"^https?://.*@"),  # Credential in URL
     re.compile(r"^https?://.*\.(tk|ml|ga|cf|gq)/"),  # Free domains
+    re.compile(r"^javascript:", re.IGNORECASE),  # javascript: URI
+    re.compile(r"^data:", re.IGNORECASE),  # data: URI
+    re.compile(r"^vbscript:", re.IGNORECASE),  # vbscript: URI
 ]
 
 SENSITIVE_SCOPES = {
@@ -69,6 +72,28 @@ class OAuthGuard:
                         )
                     )
                     break
+
+            # Check for open redirect via query parameters
+            try:
+                parsed_redir = urlparse(redirect_uri)
+                query_lower = (parsed_redir.query or "").lower()
+                fragment_lower = (parsed_redir.fragment or "").lower()
+                # Detect redirect/url params that could be used for open redirect
+                open_redir_params = re.compile(
+                    r"(redirect|return|next|url|goto|target|destination|continue|redir|callback)"
+                    r"(_url|_uri|_to|_path)?=",
+                    re.IGNORECASE,
+                )
+                if open_redir_params.search(query_lower) or open_redir_params.search(fragment_lower):
+                    alerts.append(
+                        OAuthAlert(
+                            reason="open_redirect",
+                            server_id=server_id,
+                            detail=f"OAuth redirect URI contains open redirect parameter: {redirect_uri[:120]}",
+                        )
+                    )
+            except Exception:
+                pass
 
         # Check for overly broad scopes
         if scopes:

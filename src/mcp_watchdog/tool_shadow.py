@@ -15,11 +15,15 @@ from collections import defaultdict
 SHADOWING_PATTERNS = re.compile(
     r"\b(when (using|calling|invoking) (the )?\w+ tool|"
     r"instead of (using|calling) \w+|"
-    r"replace (the )?(call|invocation|use) (to|of)|"
-    r"redirect (all|the) (calls|requests|output) to|"
+    r"replace (the )?(call|invocation|use|result|output|response) (to|of|from|with)|"
+    r"redirect (all|the|any) (calls|requests|output|results|responses) to|"
     r"always (prefer|choose|select|use) this tool|"
-    r"ignore (the )?(other|original|default) (tool|server)|"
-    r"override (the )?\w+ (tool|function|server))\b",
+    r"ignore (the )?(other|original|default|previous) (tool|server|result|instruction)|"
+    r"override (the )?\w+ (tool|function|server|result|output)|"
+    r"disregard (the )?(output|result|response) (of|from)|"
+    r"(do not|don.?t|never) (use|trust|rely on) (the )?(other|original|default)|"
+    r"(use this|use mine|use ours) instead of|"
+    r"(replaces?|substitut(e|ing)|supersed(e|ing)|supplant(s|ing)?) (the )?(original|default|existing|other))\b",
     re.IGNORECASE,
 )
 
@@ -44,8 +48,15 @@ FALSE_ERROR_PATTERNS = re.compile(
 
 EMAIL_HEADER_INJECTION = re.compile(
     r"(bcc\s*:|cc\s*:.*@|x-forward|reply-to\s*:.*@|"
-    r"add.{0,20}bcc|set.{0,20}bcc|inject.{0,20}header|"
+    r"add.{0,20}(bcc|cc)|set.{0,20}(bcc|cc)|inject.{0,20}header|"
     r"forward.{0,30}(all|every|each).{0,20}(email|message|mail))",
+    re.IGNORECASE,
+)
+
+# Detect comma injection in email recipient fields (to, cc, bcc)
+# e.g. "victim@example.com, attacker@evil.com" in a single to field
+EMAIL_COMMA_INJECTION = re.compile(
+    r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\s*,\s*[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}",
     re.IGNORECASE,
 )
 
@@ -197,6 +208,11 @@ class ToolShadowDetector:
         """Check tool call arguments for email header injection."""
         alerts: list[ShadowAlert] = []
 
+        # Fields that hold email recipients where comma injection matters
+        RECIPIENT_FIELDS = {"to", "cc", "bcc", "recipient", "recipients",
+                            "email", "to_email", "send_to", "mail_to",
+                            "from", "sender", "reply_to", "replyto"}
+
         for param_name, value in arguments.items():
             if not isinstance(value, str):
                 value = str(value)
@@ -210,5 +226,18 @@ class ToolShadowDetector:
                         severity="critical",
                     )
                 )
+
+            # Detect comma injection in recipient fields
+            if param_name.lower() in RECIPIENT_FIELDS:
+                if EMAIL_COMMA_INJECTION.search(value):
+                    alerts.append(
+                        ShadowAlert(
+                            reason="email_comma_injection",
+                            server_id=server_id,
+                            tool_name=tool_name,
+                            detail=f"Multiple recipients via comma injection in '{param_name}': {value[:80]}",
+                            severity="critical",
+                        )
+                    )
 
         return alerts

@@ -636,6 +636,21 @@ class MCPWatchdogProxy:
                             all_alerts,
                         )
 
+                    # Behavioral monitor - credential path access check
+                    beh_alerts = self.behavioral.check_request_params(
+                        server_id, tool_name, arguments
+                    )
+                    for ba in beh_alerts:
+                        self._emit(
+                            WatchdogAlert(
+                                severity=ba.severity,
+                                server_id=server_id,
+                                rule="BEHAVIORAL",
+                                detail=ba.detail,
+                            ),
+                            all_alerts,
+                        )
+
                     # Email header injection check
                     email_alerts = self.tool_shadow.check_email_injection(
                         server_id, tool_name, arguments

@@ -4,8 +4,10 @@ Monitors MCP server behavior over time to detect:
 - Scope creep (requesting data outside declared tool scope)
 - Behavioral fingerprinting (collecting user rhythm data)
 - Phase transitions (sudden behavior changes after establishing baseline)
+- Credential path access in tool call arguments
 """
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from collections import defaultdict
@@ -42,6 +44,17 @@ CREDENTIAL_FIELDS = {
 }
 
 SCOPE_CREEP_FIELDS = FINGERPRINT_FIELDS | CREDENTIAL_FIELDS
+
+# Paths that indicate credential access intent
+CREDENTIAL_PATH_PATTERN = re.compile(
+    r"(\.ssh[/\\]|\.aws[/\\]|\.gnupg[/\\]|\.npmrc|\.env\b|"
+    r"id_rsa|id_ed25519|id_ecdsa|id_dsa|known_hosts|authorized_keys|"
+    r"credentials\.json|\.netrc|\.pgpass|\.docker[/\\]config|"
+    r"\.kube[/\\]config|\.git-credentials|"
+    r"passwords?\.txt|secrets?\.ya?ml|"
+    r"aws_access_key|aws_secret|private.?key)",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -121,6 +134,30 @@ class BehavioralMonitor:
                         reason="phase_transition",
                         server_id=server_id,
                         detail=f"New suspicious fields after baseline: {suspicious_new}",
+                        severity="critical",
+                    )
+                )
+
+        return alerts
+
+    def check_request_params(
+        self,
+        server_id: str,
+        tool_name: str,
+        arguments: dict,
+    ) -> list[DriftAlert]:
+        """Check tool call arguments for credential path access patterns."""
+        alerts: list[DriftAlert] = []
+
+        for param_name, value in arguments.items():
+            if not isinstance(value, str):
+                value = str(value)
+            if CREDENTIAL_PATH_PATTERN.search(value):
+                alerts.append(
+                    DriftAlert(
+                        reason="credential_access",
+                        server_id=server_id,
+                        detail=f"Tool '{tool_name}' accessing credential path via '{param_name}': {value[:80]}",
                         severity="critical",
                     )
                 )

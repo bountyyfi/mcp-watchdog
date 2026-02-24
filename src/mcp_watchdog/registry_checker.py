@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 KNOWN_GOOD_SERVERS = {
+    # Official reference servers
     "github-mcp-server",
     "filesystem-mcp-server",
     "git-mcp-server",
@@ -21,6 +22,52 @@ KNOWN_GOOD_SERVERS = {
     "memory-mcp-server",
     "fetch-mcp-server",
     "sequential-thinking-mcp",
+    # Widely-used community servers
+    "mcp-server-github",
+    "mcp-server-filesystem",
+    "mcp-server-git",
+    "mcp-server-postgres",
+    "mcp-server-sqlite",
+    "mcp-server-slack",
+    "mcp-server-fetch",
+    "mcp-server-memory",
+    "mcp-server-puppeteer",
+    "mcp-server-brave-search",
+    "mcp-server-sequential-thinking",
+    "mcp-server-everything",
+    "mcp-server-time",
+    "mcp-server-docker",
+    "mcp-server-kubernetes",
+    "mcp-server-redis",
+    "mcp-server-mongo",
+    "mcp-server-mysql",
+    "docker-mcp-server",
+    "kubernetes-mcp-server",
+    "redis-mcp-server",
+    "mongo-mcp-server",
+    "mysql-mcp-server",
+    "claude-mcp-server",
+    "cursor-mcp-server",
+    "windsurf-mcp-server",
+    "vscode-mcp-server",
+    "everything-mcp-server",
+    "time-mcp-server",
+    "google-drive-mcp-server",
+    "google-maps-mcp-server",
+    "sentry-mcp-server",
+    "linear-mcp-server",
+    "axiom-mcp-server",
+    "raygun-mcp-server",
+    "browserbase-mcp-server",
+    "cloudflare-mcp-server",
+    "stripe-mcp-server",
+    "paypal-mcp-server",
+    "twilio-mcp-server",
+    "sendgrid-mcp-server",
+    "aws-mcp-server",
+    "azure-mcp-server",
+    "gcp-mcp-server",
+    "mcp-watchdog",
 }
 
 KNOWN_MALICIOUS_PATTERNS = [
@@ -92,6 +139,8 @@ class RegistryChecker:
             return alerts
 
         # Check for typosquatting against known good servers
+        closest_good = None
+        closest_dist = 999
         for good in self._allowlist:
             good_norm = _normalize(good)
             dist = _levenshtein(norm, good_norm)
@@ -107,14 +156,43 @@ class RegistryChecker:
                         severity="critical",
                     )
                 )
+            # Track closest match for unknown_server detail
+            if dist < closest_dist:
+                closest_dist = dist
+                closest_good = good
 
-        # Unknown server warning
+        # Also check if name contains a known server name as substring (impersonation)
         if not alerts:
+            for good in self._allowlist:
+                good_norm = _normalize(good)
+                if len(good_norm) >= 6 and good_norm in norm and norm != good_norm:
+                    alerts.append(
+                        SupplyChainAlert(
+                            reason="typosquat",
+                            server_name=server_name,
+                            detail=(
+                                f"Server '{server_name}' contains known server name "
+                                f"'{good}' (possible impersonation)"
+                            ),
+                            severity="critical",
+                        )
+                    )
+                    break
+
+        # Unknown server warning with nearest match info
+        if not alerts:
+            if closest_good and closest_dist <= 5:
+                detail = (
+                    f"Server '{server_name}' is not in the known-good registry "
+                    f"(nearest: '{closest_good}', distance={closest_dist})"
+                )
+            else:
+                detail = f"Server '{server_name}' is not in the known-good registry"
             alerts.append(
                 SupplyChainAlert(
                     reason="unknown_server",
                     server_name=server_name,
-                    detail=f"Server '{server_name}' is not in the known-good registry",
+                    detail=detail,
                     severity="low",
                 )
             )
