@@ -27,7 +27,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--version", action="version", version="mcp-watchdog 0.1.5"
+        "--version", action="version", version="mcp-watchdog 0.1.6"
     )
     parser.add_argument(
         "--verbose",
