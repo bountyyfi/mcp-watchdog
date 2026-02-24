@@ -5,34 +5,7 @@ via newline-delimited JSON over its stdin/stdout pipes.
 """
 
 import asyncio
-
-# Buffer hint for asyncio StreamReader.  Most MCP messages fit within this;
-# oversized lines are handled gracefully by _read_line() below.
-_STREAM_LIMIT = 10 * 1024 * 1024  # 10 MiB
-
-
-async def _read_line(reader: asyncio.StreamReader) -> bytes:
-    """Read a full newline-terminated line regardless of size.
-
-    Uses readuntil() so that lines larger than the StreamReader buffer
-    limit are drained in chunks instead of crashing the proxy.
-    """
-    try:
-        return await reader.readuntil(b"\n")
-    except asyncio.IncompleteReadError as exc:
-        # EOF before newline — return whatever was buffered.
-        return exc.partial
-    except asyncio.LimitOverrunError as exc:
-        # Line exceeds buffer limit — drain and keep reading.
-        data = await reader.read(exc.consumed)
-        while True:
-            try:
-                data += await reader.readuntil(b"\n")
-                return data
-            except asyncio.IncompleteReadError as exc2:
-                return data + exc2.partial
-            except asyncio.LimitOverrunError as exc2:
-                data += await reader.read(exc2.consumed)
+import sys
 
 
 class UpstreamConnection:
@@ -43,13 +16,18 @@ class UpstreamConnection:
         self._process: asyncio.subprocess.Process | None = None
 
     async def start(self) -> None:
-        """Launch the upstream process with piped stdin/stdout/stderr."""
+        """Launch the upstream process with piped stdin/stdout/stderr.
+
+        limit=sys.maxsize disables the StreamReader size guard so that
+        readline() never raises on large MCP responses (e.g. search_files
+        results that exceed the default 64 KiB).
+        """
         self._process = await asyncio.create_subprocess_exec(
             *self._command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
-            limit=_STREAM_LIMIT,
+            limit=sys.maxsize,
         )
 
     async def send(self, message: str) -> None:
@@ -63,7 +41,7 @@ class UpstreamConnection:
         if not self._process or not self._process.stdout:
             return None
         try:
-            line = await _read_line(self._process.stdout)
+            line = await self._process.stdout.readline()
             if not line:
                 return None
             return line.decode("utf-8").strip()
