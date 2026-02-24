@@ -24,7 +24,7 @@ async def run_proxy(upstream_cmd: list[str], verbose: bool) -> None:
     upstream = UpstreamConnection(upstream_cmd)
 
     stderr_console.print(
-        "[bold cyan]mcp-watchdog[/bold cyan] v0.1.5 — MCP security proxy",
+        "[bold cyan]mcp-watchdog[/bold cyan] v0.1.6 — MCP security proxy",
         highlight=False,
     )
     stderr_console.print(
@@ -137,7 +137,7 @@ async def run_standalone(verbose: bool) -> None:
     proxy = MCPWatchdogProxy(verbose=verbose)
 
     stderr_console.print(
-        "[bold cyan]mcp-watchdog[/bold cyan] v0.1.5 — standalone scanner",
+        "[bold cyan]mcp-watchdog[/bold cyan] v0.1.6 — standalone scanner",
         highlight=False,
     )
     stderr_console.print(
