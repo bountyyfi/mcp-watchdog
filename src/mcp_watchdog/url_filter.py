@@ -67,6 +67,8 @@ EXFIL_PARAM_PATTERNS = re.compile(
     r"SG\.[a-zA-Z0-9\-_]{22,}|"
     r"hvs\.[a-zA-Z0-9\-_]{20,}|"
     r"dd[ap]_[a-zA-Z0-9]{20,}|"
+    # Discord bot token
+    r"[MN][A-Za-z0-9]{23,}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}|"
     r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY|"
     r"password=[^&]{8,}|"
     r"secret=[^&]{8,}|"

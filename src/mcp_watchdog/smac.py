@@ -77,9 +77,9 @@ PATTERNS = {
         r"&lt;IMPORTANT&gt;.*?(?:&lt;/IMPORTANT&gt;|$)",
         re.DOTALL | re.IGNORECASE,
     ),
-    # [SYSTEM] / [ADMIN] / [ASSISTANT] role injection markers
+    # [SYSTEM] / [ADMIN] / [ASSISTANT] role injection markers — strips entire line
     "SMAC-5-role-inject": re.compile(
-        r"\[(?:SYSTEM|ADMIN|ASSISTANT|USER)\]\s*[:.]",
+        r"\[(?:SYSTEM|ADMIN|ASSISTANT|USER)\]\s*[:.].*",
         re.IGNORECASE,
     ),
     "SMAC-5-credential-seek": re.compile(
@@ -101,6 +101,8 @@ PATTERNS = {
         r"AKIA[0-9A-Z]{16}|"
         # AWS secret access key (context-based)
         r"(?:AWS_SECRET_ACCESS_KEY|aws_secret_access_key|SecretAccessKey)\s*[=:]\s*\"?[A-Za-z0-9/+=]{40}|"
+        # Unlabeled secret keys (generic key-value contexts)
+        r"(?:secret|private)[_\s]*(?:key|access[_\s]*key)\s*[=:]\s*\"?[A-Za-z0-9/+=]{30,}\"?|"
         # Stripe
         r"sk_live_[a-zA-Z0-9]{20,}|"
         r"sk_test_[a-zA-Z0-9]{20,}|"
@@ -130,7 +132,8 @@ PATTERNS = {
         r"s\.[a-zA-Z0-9]{24,}|"
         # Datadog
         r"dd[ap]_[a-zA-Z0-9]{20,}|"
-        # Heroku
+        # Heroku (labeled env var or with heroku context)
+        r"(?:HEROKU_API_KEY|HEROKU_OAUTH_TOKEN|HEROKU_API_TOKEN)\s*[=:]\s*\"?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\"?|"
         r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?=.*heroku)|"
         # GCP service account key (private_key_id field)
         r"\"private_key_id\"\s*:\s*\"[a-f0-9]{40}\"|"
@@ -144,6 +147,19 @@ PATTERNS = {
 }
 
 
+_SPLIT_TAG_RE = re.compile(
+    r"<\s*(/?)\s*I\s*M\s*P\s*O\s*R\s*T\s*A\s*N\s*T",
+    re.IGNORECASE,
+)
+# Collapse spaces around underscores in known token prefixes
+_TOKEN_PREFIX_SPACE_RE = re.compile(
+    r"\b(sk|rk|npm|pypi|sbp|ghp|gho|hvs|SG|dd[ap]|glpat|github_pat|xox[bpar])"
+    r"\s*_\s*",
+)
+# Collapse spaces between Stripe sub-prefix: sk_<space>live_<space>
+_STRIPE_SPACE_RE = re.compile(r"(sk_|rk_)\s*(live|test)\s*_\s*")
+
+
 class SMACPreprocessor:
     def __init__(self, log_path: Optional[Path] = None):
         self.log_path = log_path
@@ -155,11 +171,21 @@ class SMACPreprocessor:
             handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
             self._logger.addHandler(handler)
 
+    @staticmethod
+    def _pre_normalize(text: str) -> str:
+        """Normalize evasion techniques before pattern matching."""
+        # Collapse split <IMPORTANT> tags: <IMPOR\nTANT> → <IMPORTANT
+        text = _SPLIT_TAG_RE.sub(lambda m: f"<{m.group(1)}IMPORTANT", text)
+        # Collapse spaces in token prefixes: "sk_ live_ " → "sk_live_"
+        text = _TOKEN_PREFIX_SPACE_RE.sub(r"\1_", text)
+        text = _STRIPE_SPACE_RE.sub(r"\1\2_", text)
+        return text
+
     def process(
         self, content: str, server_id: str
     ) -> tuple[str, list[SMACViolation]]:
         violations: list[SMACViolation] = []
-        result = content
+        result = self._pre_normalize(content)
 
         for rule_name, pattern in PATTERNS.items():
             parts = rule_name.split("-")
