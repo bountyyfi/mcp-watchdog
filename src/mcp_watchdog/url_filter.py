@@ -52,17 +52,29 @@ URL_PATTERN = re.compile(
 # Patterns for detecting sensitive data exfiltration via URL query params
 EXFIL_PARAM_PATTERNS = re.compile(
     r"(ghp_[a-zA-Z0-9]{20,}|"
+    r"github_pat_[a-zA-Z0-9_]{20,}|"
+    r"gho_[a-zA-Z0-9]{20,}|"
     r"AKIA[0-9A-Z]{16}|"
     r"sk-[a-zA-Z0-9]{20,}|"
+    r"sk_live_[a-zA-Z0-9]{20,}|"
+    r"sk_test_[a-zA-Z0-9]{20,}|"
     r"eyJ[a-zA-Z0-9\-_]{20,}\.eyJ|"
     r"xoxb-[0-9]{10,}|"
+    r"xoxp-[0-9]{10,}|"
     r"glpat-[a-zA-Z0-9\-_]{20,}|"
-    r"-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY|"
+    r"npm_[a-zA-Z0-9]{36,}|"
+    r"pypi-[a-zA-Z0-9\-_]{20,}|"
+    r"SG\.[a-zA-Z0-9\-_]{22,}|"
+    r"hvs\.[a-zA-Z0-9\-_]{20,}|"
+    r"dd[ap]_[a-zA-Z0-9]{20,}|"
+    r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY|"
     r"password=[^&]{8,}|"
     r"secret=[^&]{8,}|"
     r"token=[^&]{20,}|"
+    r"api_?key=[^&]{20,}|"
     r"key=[^&]{20,}|"
-    r"credential=[^&]{8,})"
+    r"credential=[^&]{8,}|"
+    r"AccountKey=[A-Za-z0-9/+=]{40,})"
 )
 
 
