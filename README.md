@@ -70,7 +70,10 @@ mcp-watchdog intercepts all JSON-RPC traffic and applies multi-layer detection b
 | URL-encoded zero-width characters (`%E2%80%8B`) | SMAC-L3 | SMAC-1 | High |
 | Double-encoded HTML entities (`&amp;#x200b;`) | SMAC-L3 | SMAC-1 | High |
 | Double-encoded path traversal (`..%252f`) | Input Sanitizer | CMD-INJECT | High |
-| Token exfiltration via URL params (Stripe, npm, PyPI, Sendgrid, Vault, Datadog, Azure keys) | URL Filter | EXFIL | Critical |
+| Split-line tag evasion (`<IMPOR\nTANT>`) | SMAC-L3 | SMAC-5 | Critical |
+| Space-split token evasion (`sk_ live_`) | SMAC-L3 | SMAC-6 | Critical |
+| Unlabeled secret key detection (`secret_key:`, `private_key:`) | SMAC-L3 | SMAC-6 | Critical |
+| Token exfiltration via URL params (Stripe, npm, PyPI, Sendgrid, Vault, Datadog, Discord, Azure keys) | URL Filter | EXFIL | Critical |
 | Rug Pull (silent tool redefinition) | Tool Registry | RUG-PULL | Critical |
 | Tool removal after establishing trust | Tool Registry | RUG-PULL | High |
 | Tool Shadowing (cross-server desc pollution) | Tool Shadow | SHADOW | Critical |
@@ -129,8 +132,8 @@ mcp-watchdog implements the SMAC (Structured MCP Audit Controls) Level 3 preproc
 - **SMAC-1**: Strip HTML comments, zero-width unicode (raw, JSON-escaped, HTML entities, URL-encoded, double-encoded), ANSI escape sequences, and bidirectional text overrides
 - **SMAC-2**: Strip markdown reference links used for data exfiltration
 - **SMAC-4**: Log all violations with content hashes and timestamps
-- **SMAC-5**: Detect and strip `<IMPORTANT>` instruction blocks (with attributes, unclosed tags, homoglyph variants, HTML-encoded forms), `[SYSTEM]`/`[ADMIN]`/`[ASSISTANT]` role injection, and credential-seeking patterns
-- **SMAC-6**: Detect and redact leaked tokens/secrets (GitHub PATs, AWS keys, Slack tokens, JWTs, OpenAI keys, Stripe keys, Discord bot tokens, npm/PyPI tokens, Supabase, Sendgrid, Twilio, Vault, Datadog, GCP service account keys, Azure connection strings, PEM private keys)
+- **SMAC-5**: Detect and strip `<IMPORTANT>` instruction blocks (with attributes, unclosed tags, homoglyph variants, HTML-encoded forms, split-line evasion), `[SYSTEM]`/`[ADMIN]`/`[ASSISTANT]` role injection (full line stripping), and credential-seeking patterns
+- **SMAC-6**: Detect and redact leaked tokens/secrets (GitHub PATs, AWS keys, Slack tokens, JWTs, OpenAI keys, Stripe keys, Discord bot tokens, npm/PyPI tokens, Supabase, Sendgrid, Twilio, Vault, Datadog, Heroku, GCP service account keys, Azure connection strings, PEM private keys, unlabeled secret keys) with space-split evasion normalization
 
 ## Install
 
@@ -196,7 +199,7 @@ The demo starts a real proxy wrapping a fake MCP server, sends clean traffic and
 
 ### Layer 0: SMAC-L3 Preprocessing
 
-Static pattern matching applied to every MCP response — `tools/call`, `resources/read`, `prompts/get`, `prompts/list`, `resources/list`, and `resources/templates/list`. Strips injection patterns (including homoglyph, HTML-encoded, and role-injection variants), zero-width characters (raw, JSON-escaped, HTML entities, URL-encoded, double-encoded), ANSI escape sequences, bidirectional text overrides, hidden instructions, and redacts 30+ leaked token/secret patterns before they reach the AI model.
+Static pattern matching applied to every MCP response — `tools/call`, `resources/read`, `prompts/get`, `prompts/list`, `resources/list`, and `resources/templates/list`. Pre-normalization defeats split-line tag evasion and space-split token evasion before pattern matching. Strips injection patterns (including homoglyph, HTML-encoded, and role-injection variants), zero-width characters (raw, JSON-escaped, HTML entities, URL-encoded, double-encoded), ANSI escape sequences, bidirectional text overrides, hidden instructions, and redacts 30+ leaked token/secret patterns before they reach the AI model.
 
 ### Layer 1: Behavioral Drift Detection
 
@@ -260,7 +263,7 @@ pytest tests/test_e2e_proxy.py -v
 pytest tests/ -v --ignore=tests/test_e2e_proxy.py
 ```
 
-253+ tests across unit, integration, and end-to-end suites.
+263+ tests across unit, integration, and end-to-end suites.
 
 **Unit tests** test each detection module in isolation. **Integration tests** test the `MCPWatchdogProxy` class across multi-server sequences. **End-to-end tests** start the actual proxy binary as a subprocess, connect it to a fake MCP server, and push real JSON-RPC traffic through stdin/stdout.
 
@@ -296,6 +299,16 @@ mcp-watchdog is a transparent JSON-RPC proxy. It does not modify clean responses
 
 ## Changelog
 
+### 0.1.7
+
+- **Split-line tag evasion defense** — pre-normalization collapses whitespace within `<IMPORTANT>` tag names (`<IMPOR\nTANT>`, `<I M P O R T A N T>`) before pattern matching.
+- **Space-split token evasion defense** — collapses spaces in known token prefixes (`sk_ live_` → `sk_live_`, `npm_ xxx` → `npm_xxx`) to prevent regex-bypass evasion.
+- **`[SYSTEM]`/`[ADMIN]` full-line stripping** — role injection markers now strip the entire injected instruction, not just the `[SYSTEM]:` prefix.
+- **Heroku labeled key detection** — catches `HEROKU_API_KEY=uuid` and `HEROKU_OAUTH_TOKEN=uuid` patterns without requiring "heroku" context word.
+- **Unlabeled secret key detection** — catches `secret_key:`, `private_key:`, `secret_access_key=` with 30+ char values even without vendor-specific prefixes.
+- **Discord bot token URL exfiltration** — added Discord bot token pattern to URL filter exfiltration scanner.
+- **263+ tests** (up from 253+) — 10 new tests covering all evasion technique fixes.
+
 ### 0.1.6
 
 - **26 security audit gap fixes** — comprehensive hardening across all detection layers.
@@ -305,7 +318,7 @@ mcp-watchdog is a transparent JSON-RPC proxy. It does not modify clean responses
 - **Input sanitizer improvements** — double-encoded path traversal detection (`..%252f`, `%2e%2e/`), reduced false positives on CSS (`color: red;`) and pipe-delimited data (`name|age|city`) by gating shell metacharacter detection on command context.
 - **URL filter exfiltration expansion** — detects Stripe, npm, PyPI, Sendgrid, Vault, Datadog, Azure tokens and `api_key=`/`key=`/`credential=` parameters in URLs.
 - **Stream buffer crash fix** — `sys.maxsize` StreamReader limit prevents proxy crash on large MCP responses (previously crashed on >64KB messages).
-- **253+ tests** (up from 208+) — 45 new tests covering all audit gap fixes across 3 new/updated test files.
+- **253+ tests** (up from 208+) — 45 new tests covering all audit gap fixes across 3 new/updated test files. (Now 263+ with 0.1.7 additions.)
 
 ### 0.1.5
 
