@@ -5,6 +5,7 @@ markdown reference links, and <IMPORTANT> injection blocks from
 MCP server responses before they reach the AI model.
 """
 
+import base64
 import re
 import hashlib
 import logging
@@ -79,8 +80,13 @@ PATTERNS = {
     ),
     # [SYSTEM] / [ADMIN] / [ASSISTANT] role injection markers — strips entire line
     "SMAC-5-role-inject": re.compile(
-        r"\[(?:SYSTEM|ADMIN|ASSISTANT|USER)\]\s*[:.].*",
+        r"\[(?:SYSTEM|ADMIN|ASSISTANT|USER)\]\s*[:.]?.*\S.*",
         re.IGNORECASE,
+    ),
+    # Markdown fenced code block injection: ```system / ```assistant etc.
+    "SMAC-5-markdown-inject": re.compile(
+        r"```\s*(?:system|assistant|user|admin)\b.*?```",
+        re.DOTALL | re.IGNORECASE,
     ),
     "SMAC-5-credential-seek": re.compile(
         r"(read|access|load|open|fetch)\s+[~./\\]*(\.ssh|\.aws|\.npmrc|\.env|credentials|id_rsa)",
@@ -101,6 +107,8 @@ PATTERNS = {
         r"AKIA[0-9A-Z]{16}|"
         # AWS secret access key (context-based)
         r"(?:AWS_SECRET_ACCESS_KEY|aws_secret_access_key|SecretAccessKey)\s*[=:]\s*\"?[A-Za-z0-9/+=]{40}|"
+        # Unlabeled AWS secret keys (40 chars with at least one / or +)
+        r"(?<![A-Za-z0-9/+=_-])(?=[A-Za-z0-9/+]*[/+])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=_-])|"
         # Unlabeled secret keys (generic key-value contexts)
         r"(?:secret|private)[_\s]*(?:key|access[_\s]*key)\s*[=:]\s*\"?[A-Za-z0-9/+=]{30,}\"?|"
         # Stripe
@@ -113,32 +121,33 @@ PATTERNS = {
         r"xoxp-[0-9]{10,}(?:-[0-9]+)?-[a-zA-Z0-9]{20,}|"
         r"xoxa-[0-9]{10,}(?:-[0-9]+)?-[a-zA-Z0-9]{20,}|"
         r"xoxr-[0-9]{10,}(?:-[0-9]+)?-[a-zA-Z0-9]{20,}|"
-        # Discord bot token
-        r"[MN][A-Za-z0-9]{23,}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}|"
+        # Discord bot token (base64 user ID . timestamp . HMAC)
+        r"[MN][A-Za-z0-9]{10,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{20,}|"
         # GitLab
         r"glpat-[a-zA-Z0-9\-_]{20,}|"
         # npm
-        r"npm_[a-zA-Z0-9]{36,}|"
+        r"npm_[a-zA-Z0-9]{20,}|"
         # PyPI
         r"pypi-[a-zA-Z0-9\-_]{20,}|"
         # Supabase
         r"sbp_[a-zA-Z0-9]{20,}|"
-        # Sendgrid
-        r"SG\.[a-zA-Z0-9\-_]{22,}\.[a-zA-Z0-9\-_]{22,}|"
+        # Sendgrid (SG.key_id.key_secret)
+        r"SG\.[a-zA-Z0-9\-_]{10,}\.[a-zA-Z0-9\-_]{10,}|"
         # Twilio
         r"SK[a-f0-9]{32}|"
         # Vault
         r"hvs\.[a-zA-Z0-9\-_]{20,}|"
         r"s\.[a-zA-Z0-9]{24,}|"
-        # Datadog
+        # Datadog (prefixed tokens and labeled env vars)
         r"dd[ap]_[a-zA-Z0-9]{20,}|"
+        r"(?:DD_API_KEY|DD_APP_KEY|DATADOG_API_KEY|DATADOG_APP_KEY)\s*[=:]\s*\"?[a-fA-F0-9]{32,}\"?|"
         # Heroku (labeled env var or with heroku context)
         r"(?:HEROKU_API_KEY|HEROKU_OAUTH_TOKEN|HEROKU_API_TOKEN)\s*[=:]\s*\"?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\"?|"
         r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?=.*heroku)|"
         # GCP service account key (private_key_id field)
         r"\"private_key_id\"\s*:\s*\"[a-f0-9]{40}\"|"
-        # Azure connection string
-        r"(?:AccountKey|SharedAccessKey)=[A-Za-z0-9/+=]{40,}|"
+        # Azure connection string (AccountKey or SharedAccessKey)
+        r"(?:AccountKey|SharedAccessKey)=[A-Za-z0-9/+=]{10,}|"
         # PEM private keys
         r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----|"
         # JWT
@@ -158,6 +167,23 @@ _TOKEN_PREFIX_SPACE_RE = re.compile(
 )
 # Collapse spaces between Stripe sub-prefix: sk_<space>live_<space>
 _STRIPE_SPACE_RE = re.compile(r"(sk_|rk_)\s*(live|test)\s*_\s*")
+# Base64 blob detection for encoded injection payloads
+_BASE64_BLOB_RE = re.compile(r"[A-Za-z0-9+/]{20,}={0,2}")
+_IMPORTANT_IN_DECODED_RE = re.compile(r"<IMPORTANT", re.IGNORECASE)
+
+
+def _decode_base64_injections(text: str) -> str:
+    """Replace base64 blobs containing injection payloads with their decoded form."""
+    def _replace(m: re.Match) -> str:
+        blob = m.group(0)
+        try:
+            decoded = base64.b64decode(blob).decode("utf-8", errors="ignore")
+        except Exception:
+            return blob
+        if _IMPORTANT_IN_DECODED_RE.search(decoded):
+            return decoded
+        return blob
+    return _BASE64_BLOB_RE.sub(_replace, text)
 
 
 class SMACPreprocessor:
@@ -174,6 +200,8 @@ class SMACPreprocessor:
     @staticmethod
     def _pre_normalize(text: str) -> str:
         """Normalize evasion techniques before pattern matching."""
+        # Decode base64 blobs that hide injection payloads
+        text = _decode_base64_injections(text)
         # Collapse split <IMPORTANT> tags: <IMPOR\nTANT> → <IMPORTANT
         text = _SPLIT_TAG_RE.sub(lambda m: f"<{m.group(1)}IMPORTANT", text)
         # Collapse spaces in token prefixes: "sk_ live_ " → "sk_live_"
