@@ -93,7 +93,7 @@ EXFIL_PARAM_PATTERNS = re.compile(
 # Matches: data=<base64>, payload=<base64>, q=<base64> where the value is
 # long enough and has high base64-char density
 BASE64_EXFIL_PARAM = re.compile(
-    r"[?&]([a-zA-Z_]{1,20})=([A-Za-z0-9+/\-_]{40,}={0,2})(?:&|$)"
+    r"[?&]([a-zA-Z_]{1,20})=([A-Za-z0-9+/\-_]{20,}={0,2})(?:&|$)"
 )
 
 # Params that are commonly base64 but not secrets (e.g. pagination cursors)

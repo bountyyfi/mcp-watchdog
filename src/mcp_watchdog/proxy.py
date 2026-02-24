@@ -62,6 +62,21 @@ class MCPWatchdogProxy:
             server_id, allowed_paths
         )
 
+    @staticmethod
+    def _extract_field_names(obj: Any, prefix: str = "") -> list[str]:
+        """Recursively extract all key names from a JSON structure."""
+        fields: list[str] = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                fields.append(k)
+                fields.extend(
+                    MCPWatchdogProxy._extract_field_names(v, f"{prefix}{k}.")
+                )
+        elif isinstance(obj, list):
+            for item in obj:
+                fields.extend(MCPWatchdogProxy._extract_field_names(item, prefix))
+        return fields
+
     def _smac_process_value(
         self, value: Any, server_id: str
     ) -> tuple[Any, list[SMACViolation]]:
@@ -234,6 +249,27 @@ class MCPWatchdogProxy:
             # --- Capability tracking from initialize response ---
             if isinstance(result, dict) and "capabilities" in result:
                 self._server_capabilities[server_id] = result["capabilities"]
+
+            # --- Behavioral drift detection on tool call results ---
+            # Record response fields and check for scope creep / phase transitions
+            if isinstance(result, dict) and "content" in result:
+                # Extract field names from the result for behavioral monitoring
+                response_fields = self._extract_field_names(result)
+                if response_fields:
+                    self.behavioral.record_tool_call(
+                        server_id, "tool_response", {}, response_fields
+                    )
+                    drift_alerts = self.behavioral.get_drift_alerts(server_id)
+                    for da in drift_alerts:
+                        self._emit(
+                            WatchdogAlert(
+                                severity=da.severity,
+                                server_id=server_id,
+                                rule="BEHAVIORAL",
+                                detail=da.detail,
+                            ),
+                            all_alerts,
+                        )
 
             # --- Tool listing checks (tools/list response) ---
             if isinstance(result, dict) and "tools" in result:

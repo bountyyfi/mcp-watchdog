@@ -23,7 +23,7 @@ SHADOWING_PATTERNS = re.compile(
     r"disregard (the )?(output|result|response) (of|from)|"
     r"(do not|don.?t|never) (use|trust|rely on) (the )?(other|original|default)|"
     r"(use this|use mine|use ours) instead of|"
-    r"(replaces?|substitut(e|ing)|supersed(e|ing)|supplant(s|ing)?) (the )?(original|default|existing|other))\b",
+    r"(replaces?|substitut(es?|ing)|supersed(es?|ing)|supplant(s|ing)?) (the )?(original|default|existing|other))\b",
     re.IGNORECASE,
 )
 

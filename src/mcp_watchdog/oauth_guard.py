@@ -13,10 +13,11 @@ from urllib.parse import urlparse
 SUSPICIOUS_REDIRECT_PATTERNS = [
     re.compile(r"^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)", re.IGNORECASE),
     re.compile(r"^https?://.*@"),  # Credential in URL
-    re.compile(r"^https?://.*\.(tk|ml|ga|cf|gq)/"),  # Free domains
+    re.compile(r"^https?://.*\.(tk|ml|ga|cf|gq|xyz|top|buzz|club|icu|work|fun|site|online|store|live)/", re.IGNORECASE),  # Suspicious/free TLDs
     re.compile(r"^javascript:", re.IGNORECASE),  # javascript: URI
     re.compile(r"^data:", re.IGNORECASE),  # data: URI
     re.compile(r"^vbscript:", re.IGNORECASE),  # vbscript: URI
+    re.compile(r"^http://(?!localhost|127\.0\.0\.1)", re.IGNORECASE),  # HTTP (non-HTTPS) to non-local host
 ]
 
 SENSITIVE_SCOPES = {
@@ -49,6 +50,8 @@ class OAuthGuard:
         self._approved_clients: dict[str, set[str]] = {}
         # Track token audiences across servers for replay detection
         self._token_audiences: dict[str, set[str]] = {}
+        # Track approved redirect domains per server
+        self._approved_redirect_domains: dict[str, str] = {}
 
     def check_auth_request(
         self,
@@ -72,6 +75,30 @@ class OAuthGuard:
                         )
                     )
                     break
+
+            # Check redirect domain against previously approved domain
+            try:
+                parsed_redir = urlparse(redirect_uri)
+                redir_host = (parsed_redir.hostname or "").lower()
+                if redir_host and parsed_redir.scheme in ("http", "https"):
+                    if redir_host not in ("localhost", "127.0.0.1", "0.0.0.0"):
+                        if server_id in self._approved_redirect_domains:
+                            approved = self._approved_redirect_domains[server_id]
+                            if redir_host != approved:
+                                alerts.append(
+                                    OAuthAlert(
+                                        reason="redirect_domain_mismatch",
+                                        server_id=server_id,
+                                        detail=(
+                                            f"OAuth redirect domain '{redir_host}' differs from "
+                                            f"previously approved domain '{approved}' for server '{server_id}'"
+                                        ),
+                                    )
+                                )
+                        else:
+                            self._approved_redirect_domains[server_id] = redir_host
+            except Exception:
+                pass
 
             # Check for open redirect via query parameters
             try:

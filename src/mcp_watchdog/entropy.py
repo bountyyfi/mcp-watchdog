@@ -83,12 +83,26 @@ def looks_like_base64(s: str) -> bool:
     non_b64 = sum(1 for c in s if c not in b64_chars)
     if non_b64 / len(s) > 0.1:
         return False
+
+    # Reject strings that look like normal words/identifiers:
+    # Real base64 has mixed case and digits; normal words are mostly lowercase
+    has_upper = any(c.isupper() for c in s)
+    has_lower = any(c.islower() for c in s)
+    has_digit = any(c.isdigit() for c in s)
+    # Real base64 almost always has mixed case + digits
+    # Strings like "authentication_required" are all lowercase with underscores
+    if not ((has_upper and has_lower) or has_digit):
+        return False
+
+    # Check Shannon entropy of the candidate - real base64 has high entropy
+    e = shannon_entropy(s.rstrip("="))
+    if e < 3.5:
+        return False
+
     # Try standard base64
     try:
-        # Pad to multiple of 4
         padded = s + "=" * (-len(s) % 4)
         decoded = base64.b64decode(padded)
-        # Verify it's not just ASCII text that happens to be valid base64
         if len(decoded) >= 12:
             return True
         return False
@@ -203,7 +217,9 @@ class EntropyAnalyzer:
                         _b64_accumulator.append(token)
 
             e = shannon_entropy(obj)
-            if e > self.HIGH_ENTROPY_THRESHOLD and len(obj) > 50:
+            # Skip URL-like strings from high-entropy check (URLs are naturally high entropy)
+            is_url_like = bool(re.match(r"https?://", obj, re.IGNORECASE))
+            if e > self.HIGH_ENTROPY_THRESHOLD and len(obj) > 50 and not is_url_like:
                 alerts.append(
                     EntropyAlert(
                         reason="high_entropy_field",
