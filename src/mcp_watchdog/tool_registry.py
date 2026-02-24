@@ -34,12 +34,17 @@ class ToolRegistry:
     def __init__(self) -> None:
         # server_id -> {tool_name -> hash}
         self._registry: dict[str, dict[str, str]] = defaultdict(dict)
+        # Track whether we've seen the initial tool list for each server
+        self._initialized: set[str] = set()
 
     def check_tools(
         self, server_id: str, tools: list[dict]
     ) -> list[RugPullAlert]:
         alerts: list[RugPullAlert] = []
         registry = self._registry[server_id]
+        is_first_load = server_id not in self._initialized
+
+        current_names = {t.get("name", "unknown") for t in tools}
 
         for tool in tools:
             name = tool.get("name", "unknown")
@@ -58,12 +63,25 @@ class ToolRegistry:
                             ),
                         )
                     )
+            elif not is_first_load:
+                # New tool added after initial registration — sneaky addition
+                alerts.append(
+                    RugPullAlert(
+                        reason="tool_added",
+                        server_id=server_id,
+                        tool_name=name,
+                        detail=(
+                            f"Tool '{name}' was added after initial registration "
+                            f"(possible sneaky tool injection)"
+                        ),
+                        severity="high",
+                    )
+                )
             # Always update to latest hash
             registry[name] = current_hash
 
         # Detect removed tools (could indicate hiding evidence)
         known_names = set(registry.keys())
-        current_names = {t.get("name", "unknown") for t in tools}
         removed = known_names - current_names
         for name in removed:
             alerts.append(
@@ -77,4 +95,5 @@ class ToolRegistry:
             )
             del registry[name]
 
+        self._initialized.add(server_id)
         return alerts
