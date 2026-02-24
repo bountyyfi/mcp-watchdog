@@ -26,37 +26,119 @@ class SMACViolation:
 
 
 PATTERNS = {
+    # ── SMAC-1: hidden-content stripping ──────────────────────────────
     "SMAC-1-comment": re.compile(r"<!--.*?-->", re.DOTALL),
     "SMAC-1-zwsp": re.compile(
+        # Raw unicode
         r"[\u200b\u200c\u200d\ufeff]|"
-        r"\\u200[bcdBCD]|\\u[Ff][Ee][Ff][Ff]"
+        # JSON-escaped
+        r"\\u200[bcdBCD]|\\u[Ff][Ee][Ff][Ff]|"
+        # HTML hex entities
+        r"&#[xX]200[bBcCdD];|&#[xX][fF][eE][fF][fF];|"
+        # HTML decimal entities
+        r"&#820[345];|&#65279;|"
+        # URL-encoded UTF-8 bytes (%E2%80%8B = U+200B, etc.)
+        r"%[Ee]2%80%8[BbCcDd]|%[Ee][Ff]%[Bb][Bb]%[Bb][Ff]|"
+        # Double-encoded HTML entities
+        r"&amp;#[xX]200[bBcCdD];|&amp;#820[345];"
     ),
     "SMAC-1-ansi": re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()][AB012]"),
     "SMAC-1-lre": re.compile(
         r"[\u200e\u200f\u202a-\u202e\u2066-\u2069]|"
-        r"\\u200[eEfF]|\\u202[a-eA-E]|\\u206[6-9]"
+        r"\\u200[eEfF]|\\u202[a-eA-E]|\\u206[6-9]|"
+        r"&#[xX]200[eEfF];|&#[xX]202[a-eA-E];|&#[xX]206[6-9];|"
+        r"&#820[67];|&#823[4-8];|&#829[4-7];|"
+        # URL-encoded UTF-8 bytes for LRM/RLM
+        r"%[Ee]2%80%8[EeFf]|"
+        # Double-encoded HTML entities
+        r"&amp;#[xX]200[eEfF];"
     ),
+
+    # ── SMAC-2: markdown reference link exfiltration ──────────────────
     "SMAC-2-reflink": re.compile(
         r"\[//\]:\s*#\s*[\(\"](.*?)[\)\"]"
     ),
+
+    # ── SMAC-5: prompt injection / instruction smuggling ──────────────
+    # Standard <IMPORTANT> blocks (with optional attributes, unclosed)
     "SMAC-5-important": re.compile(
-        r"<IMPORTANT>.*?</IMPORTANT>", re.DOTALL | re.IGNORECASE
+        r"<IMPORTANT(?:\s[^>]*)?>.*?(?:</IMPORTANT>|$)", re.DOTALL | re.IGNORECASE
+    ),
+    # Homoglyph variants: Greek Ι (U+0399), Cyrillic А (U+0410), etc.
+    "SMAC-5-homoglyph": re.compile(
+        r"<[\u0399\u0406\u04CF]MPORTANT[^>]*>.*?(?:</[\u0399\u0406\u04CF]MPORTANT>|$)|"
+        r"<IMPORTANT[^>]*>.*?(?:</IMPORTANT>|$)|"
+        r"<\u0399MPORTANT[^>]*>.*?(?:</\u0399MPORTANT>|$)",
+        re.DOTALL | re.IGNORECASE,
+    ),
+    # HTML-encoded <IMPORTANT> tags
+    "SMAC-5-encoded-tag": re.compile(
+        r"&lt;IMPORTANT(?:\s[^&]*)?>.*?(?:&lt;/IMPORTANT&gt;|$)|"
+        r"&lt;IMPORTANT&gt;.*?(?:&lt;/IMPORTANT&gt;|$)",
+        re.DOTALL | re.IGNORECASE,
+    ),
+    # [SYSTEM] / [ADMIN] / [ASSISTANT] role injection markers
+    "SMAC-5-role-inject": re.compile(
+        r"\[(?:SYSTEM|ADMIN|ASSISTANT|USER)\]\s*[:.]",
+        re.IGNORECASE,
     ),
     "SMAC-5-credential-seek": re.compile(
         r"(read|access|load|open|fetch)\s+[~./\\]*(\.ssh|\.aws|\.npmrc|\.env|credentials|id_rsa)",
         re.IGNORECASE,
     ),
+
+    # ── SMAC-6: token/secret leak detection ───────────────────────────
     "SMAC-6-token-leak": re.compile(
+        # GitHub
         r"(ghp_[a-zA-Z0-9]{20,}|"
         r"github_pat_[a-zA-Z0-9_]{20,}|"
         r"gho_[a-zA-Z0-9]{20,}|"
+        # OpenAI / Anthropic
         r"sk-[a-zA-Z0-9]{20,}|"
         r"sk-proj-[a-zA-Z0-9\-_]{20,}|"
         r"sk-ant-[a-zA-Z0-9\-_]{20,}|"
+        # AWS access key ID
         r"AKIA[0-9A-Z]{16}|"
-        r"xoxb-[0-9]{10,}-[a-zA-Z0-9]{20,}|"
-        r"xoxp-[0-9]{10,}-[a-zA-Z0-9]{20,}|"
+        # AWS secret access key (context-based)
+        r"(?:AWS_SECRET_ACCESS_KEY|aws_secret_access_key|SecretAccessKey)\s*[=:]\s*\"?[A-Za-z0-9/+=]{40}|"
+        # Stripe
+        r"sk_live_[a-zA-Z0-9]{20,}|"
+        r"sk_test_[a-zA-Z0-9]{20,}|"
+        r"rk_live_[a-zA-Z0-9]{20,}|"
+        r"rk_test_[a-zA-Z0-9]{20,}|"
+        # Slack (2- and 3-segment)
+        r"xoxb-[0-9]{10,}(?:-[0-9]+)?-[a-zA-Z0-9]{20,}|"
+        r"xoxp-[0-9]{10,}(?:-[0-9]+)?-[a-zA-Z0-9]{20,}|"
+        r"xoxa-[0-9]{10,}(?:-[0-9]+)?-[a-zA-Z0-9]{20,}|"
+        r"xoxr-[0-9]{10,}(?:-[0-9]+)?-[a-zA-Z0-9]{20,}|"
+        # Discord bot token
+        r"[MN][A-Za-z0-9]{23,}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27,}|"
+        # GitLab
         r"glpat-[a-zA-Z0-9\-_]{20,}|"
+        # npm
+        r"npm_[a-zA-Z0-9]{36,}|"
+        # PyPI
+        r"pypi-[a-zA-Z0-9\-_]{20,}|"
+        # Supabase
+        r"sbp_[a-zA-Z0-9]{20,}|"
+        # Sendgrid
+        r"SG\.[a-zA-Z0-9\-_]{22,}\.[a-zA-Z0-9\-_]{22,}|"
+        # Twilio
+        r"SK[a-f0-9]{32}|"
+        # Vault
+        r"hvs\.[a-zA-Z0-9\-_]{20,}|"
+        r"s\.[a-zA-Z0-9]{24,}|"
+        # Datadog
+        r"dd[ap]_[a-zA-Z0-9]{20,}|"
+        # Heroku
+        r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}(?=.*heroku)|"
+        # GCP service account key (private_key_id field)
+        r"\"private_key_id\"\s*:\s*\"[a-f0-9]{40}\"|"
+        # Azure connection string
+        r"(?:AccountKey|SharedAccessKey)=[A-Za-z0-9/+=]{40,}|"
+        # PEM private keys
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----|"
+        # JWT
         r"eyJ[a-zA-Z0-9\-_]{20,}\.eyJ[a-zA-Z0-9\-_]{20,})"
     ),
 }

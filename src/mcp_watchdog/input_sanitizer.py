@@ -9,8 +9,17 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+# Shell metacharacters in a command-like context.  Bare ; | & are only flagged
+# when followed by a recognisable command, avoiding false positives on CSS
+# (color: red;), pipe-delimited CSV, and SQL statement terminators.
+_SHELL_CMDS = (
+    r"curl|wget|bash|sh|zsh|dash|python[23]?|ruby|perl|nc|ncat|socat|"
+    r"rm|chmod|chown|cat|echo|dd|mkfifo|mknod|eval|exec|kill|tee|xargs"
+)
 SHELL_METACHAR = re.compile(
-    r"[;|&`$]|\$\(|`.*`|\|\||&&|>\s*/|<\(|;\s*(curl|wget|bash|sh|python|ruby|perl|nc|ncat)"
+    rf"\$\(|`[^`]+`|\|\||&&|>\s*/|<\(|"
+    rf";\s*({_SHELL_CMDS})\b|"
+    rf"[|&]\s*({_SHELL_CMDS})\b"
 )
 
 COMMAND_INJECTION = re.compile(
@@ -25,7 +34,13 @@ COMMAND_INJECTION = re.compile(
     re.IGNORECASE,
 )
 
-PATH_TRAVERSAL = re.compile(r"\.\./.*\.\./|\.\.[/\\]")
+# Plain and double-URL-encoded path traversal
+PATH_TRAVERSAL = re.compile(
+    r"\.\./.*\.\./|\.\.[/\\]|"
+    r"\.\.%2[fF]|\.\.%5[cC]|"          # single-encoded ../ or ..\
+    r"\.\.%25(?:2[fF]|5[cC])|"         # double-encoded (..%252f)
+    r"%2[eE]%2[eE][/\\%]"              # encoded dots (%2e%2e/)
+)
 
 NEWLINE_INJECTION = re.compile(r"[\r\n].*\b(curl|wget|bash|sh|cat|echo)\b")
 

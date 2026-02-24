@@ -22,7 +22,9 @@ async def create_stdin_reader() -> asyncio.StreamReader:
     StreamReader since ProactorEventLoop lacks connect_read_pipe.
     """
     loop = asyncio.get_running_loop()
-    reader = asyncio.StreamReader()
+    # Disable the default 64 KiB size guard — MCP JSON-RPC lines
+    # (tool listings, search results) routinely exceed that.
+    reader = asyncio.StreamReader(limit=sys.maxsize)
 
     if sys.platform == "win32":
         def _read_stdin_thread() -> None:

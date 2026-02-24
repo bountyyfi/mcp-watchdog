@@ -5,6 +5,7 @@ via newline-delimited JSON over its stdin/stdout pipes.
 """
 
 import asyncio
+import sys
 
 
 class UpstreamConnection:
@@ -15,12 +16,18 @@ class UpstreamConnection:
         self._process: asyncio.subprocess.Process | None = None
 
     async def start(self) -> None:
-        """Launch the upstream process with piped stdin/stdout/stderr."""
+        """Launch the upstream process with piped stdin/stdout/stderr.
+
+        limit=sys.maxsize disables the StreamReader size guard so that
+        readline() never raises on large MCP responses (e.g. search_files
+        results that exceed the default 64 KiB).
+        """
         self._process = await asyncio.create_subprocess_exec(
             *self._command,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=sys.maxsize,
         )
 
     async def send(self, message: str) -> None:
