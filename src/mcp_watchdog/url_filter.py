@@ -164,8 +164,4 @@ class URLFilter:
             alert = self.check_url(url, server_id)
             if alert:
                 alerts.append(alert)
-            # Check for data exfiltration via URL params
-            exfil = self.check_exfiltration(url, server_id)
-            if exfil:
-                alerts.append(exfil)
         return alerts
