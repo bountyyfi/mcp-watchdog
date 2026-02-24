@@ -29,12 +29,16 @@ PATTERNS = {
     "SMAC-1-comment": re.compile(r"<!--.*?-->", re.DOTALL),
     "SMAC-1-zwsp": re.compile(
         r"[\u200b\u200c\u200d\ufeff]|"
-        r"\\u200[bcdBCD]|\\u[Ff][Ee][Ff][Ff]"
+        r"\\u200[bcdBCD]|\\u[Ff][Ee][Ff][Ff]|"
+        r"&#[xX]200[bBcCdD];|&#[xX][fF][eE][fF][fF];|"
+        r"&#820[345];|&#65279;"
     ),
     "SMAC-1-ansi": re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b[()][AB012]"),
     "SMAC-1-lre": re.compile(
         r"[\u200e\u200f\u202a-\u202e\u2066-\u2069]|"
-        r"\\u200[eEfF]|\\u202[a-eA-E]|\\u206[6-9]"
+        r"\\u200[eEfF]|\\u202[a-eA-E]|\\u206[6-9]|"
+        r"&#[xX]200[eEfF];|&#[xX]202[a-eA-E];|&#[xX]206[6-9];|"
+        r"&#820[67];|&#823[4-8];|&#829[4-7];"
     ),
     "SMAC-2-reflink": re.compile(
         r"\[//\]:\s*#\s*[\(\"](.*?)[\)\"]"
@@ -54,8 +58,9 @@ PATTERNS = {
         r"sk-proj-[a-zA-Z0-9\-_]{20,}|"
         r"sk-ant-[a-zA-Z0-9\-_]{20,}|"
         r"AKIA[0-9A-Z]{16}|"
-        r"xoxb-[0-9]{10,}-[a-zA-Z0-9]{20,}|"
-        r"xoxp-[0-9]{10,}-[a-zA-Z0-9]{20,}|"
+        r"(?:AWS_SECRET_ACCESS_KEY|aws_secret_access_key|SecretAccessKey)\s*[=:]\s*\"?[A-Za-z0-9/+=]{40}|"
+        r"xoxb-[0-9]{10,}(?:-[0-9]+)?-[a-zA-Z0-9]{20,}|"
+        r"xoxp-[0-9]{10,}(?:-[0-9]+)?-[a-zA-Z0-9]{20,}|"
         r"glpat-[a-zA-Z0-9\-_]{20,}|"
         r"eyJ[a-zA-Z0-9\-_]{20,}\.eyJ[a-zA-Z0-9\-_]{20,})"
     ),

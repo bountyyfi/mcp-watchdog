@@ -13,6 +13,10 @@ import json
 import sys
 import threading
 
+# 10 MiB – MCP messages (especially tool-list and search results) can
+# exceed the default 64 KiB asyncio StreamReader limit on a single line.
+_STREAM_LIMIT = 10 * 1024 * 1024
+
 
 async def create_stdin_reader() -> asyncio.StreamReader:
     """Create an async reader for stdin (binary mode).
@@ -22,7 +26,7 @@ async def create_stdin_reader() -> asyncio.StreamReader:
     StreamReader since ProactorEventLoop lacks connect_read_pipe.
     """
     loop = asyncio.get_running_loop()
-    reader = asyncio.StreamReader()
+    reader = asyncio.StreamReader(limit=_STREAM_LIMIT)
 
     if sys.platform == "win32":
         def _read_stdin_thread() -> None:
@@ -56,7 +60,7 @@ async def read_message(reader: asyncio.StreamReader) -> str | None:
         if not line:
             return None
         return line.decode("utf-8").strip()
-    except (asyncio.CancelledError, ConnectionError, EOFError):
+    except (asyncio.CancelledError, ConnectionError, EOFError, ValueError):
         return None
 
 

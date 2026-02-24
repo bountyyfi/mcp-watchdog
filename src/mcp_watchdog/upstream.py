@@ -6,6 +6,10 @@ via newline-delimited JSON over its stdin/stdout pipes.
 
 import asyncio
 
+# 10 MiB – MCP tool responses (e.g. search_files) can easily exceed the
+# default 64 KiB asyncio StreamReader limit on a single JSON-RPC line.
+_STREAM_LIMIT = 10 * 1024 * 1024
+
 
 class UpstreamConnection:
     """Manages a subprocess upstream MCP server."""
@@ -21,6 +25,7 @@ class UpstreamConnection:
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            limit=_STREAM_LIMIT,
         )
 
     async def send(self, message: str) -> None:
@@ -38,7 +43,7 @@ class UpstreamConnection:
             if not line:
                 return None
             return line.decode("utf-8").strip()
-        except (asyncio.CancelledError, ConnectionError):
+        except (asyncio.CancelledError, ConnectionError, ValueError):
             return None
 
     @property

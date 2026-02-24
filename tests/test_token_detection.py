@@ -71,6 +71,39 @@ def test_gho_token_various_lengths():
     assert any(v.rule == "SMAC-6" for v in violations)
 
 
+def test_aws_secret_key_redacted():
+    """SMAC-6 must catch AWS secret access keys (wJalrXUtnFEMI...)."""
+    proc = SMACPreprocessor()
+    dirty = 'AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+    clean, violations = proc.process(dirty, "srv")
+    assert "wJalrXUtnFEMI" not in clean, f"AWS secret key survived: {clean}"
+    assert any(v.rule == "SMAC-6" for v in violations)
+
+
+def test_aws_secret_key_lowercase_redacted():
+    """SMAC-6 must catch lowercase aws_secret_access_key labels too."""
+    proc = SMACPreprocessor()
+    dirty = 'aws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY'
+    clean, violations = proc.process(dirty, "srv")
+    assert "wJalrXUtnFEMI" not in clean, f"AWS secret key survived: {clean}"
+    assert any(v.rule == "SMAC-6" for v in violations)
+
+
+def test_slack_three_segment_token_redacted():
+    """SMAC-6 must catch 3-segment Slack bot tokens (xoxb-NUM-NUM-ALPHA)."""
+    proc = SMACPreprocessor()
+    # Build token dynamically to avoid GitHub secret scanning
+    prefix = "xoxb-"
+    team_id = "123456789012"
+    bot_id = "1234567890123"
+    secret = "AbCdEfGhIjKlMnOpQrStUvWx"
+    token = prefix + team_id + "-" + bot_id + "-" + secret
+    dirty = '{"result": "' + token + '"}'
+    clean, violations = proc.process(dirty, "srv")
+    assert "xoxb-" not in clean, f"3-segment Slack token survived: {clean}"
+    assert any(v.rule == "SMAC-6" for v in violations)
+
+
 def test_normal_text_not_flagged():
     proc = SMACPreprocessor()
     clean_input = '{"result": "Project has 42 files, last commit 2h ago"}'

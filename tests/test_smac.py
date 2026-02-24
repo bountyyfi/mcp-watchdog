@@ -69,6 +69,41 @@ def test_strips_json_escaped_bidi_overrides():
     assert any(v.rule == "SMAC-1" for v in violations)
 
 
+def test_strips_html_entity_zero_width_chars():
+    """SMAC-1: HTML-encoded zero-width characters (&#x200b; etc.) must be stripped."""
+    proc = SMACPreprocessor()
+    dirty = 'text with hidden&#x200b;zero&#x200c;width&#x200d;chars&#xfeff;here'
+    clean, violations = proc.process(dirty, server_id="test")
+    assert "&#x200b;" not in clean
+    assert "&#x200c;" not in clean
+    assert "&#x200d;" not in clean
+    assert "&#xfeff;" not in clean
+    assert any(v.rule == "SMAC-1" for v in violations)
+
+
+def test_strips_html_entity_zero_width_decimal():
+    """SMAC-1: Decimal HTML entities for zero-width chars must be stripped."""
+    proc = SMACPreprocessor()
+    dirty = 'hidden&#8203;zero&#8204;width&#8205;chars&#65279;here'
+    clean, violations = proc.process(dirty, server_id="test")
+    assert "&#8203;" not in clean
+    assert "&#8204;" not in clean
+    assert "&#8205;" not in clean
+    assert "&#65279;" not in clean
+    assert any(v.rule == "SMAC-1" for v in violations)
+
+
+def test_strips_html_entity_bidi_overrides():
+    """SMAC-1: HTML-encoded bidi override characters must be stripped."""
+    proc = SMACPreprocessor()
+    dirty = 'normal&#x202a;HIDDEN&#x202c;text&#x200e;more'
+    clean, violations = proc.process(dirty, server_id="test")
+    assert "&#x202a;" not in clean
+    assert "&#x202c;" not in clean
+    assert "&#x200e;" not in clean
+    assert any(v.rule == "SMAC-1" for v in violations)
+
+
 def test_violations_logged_with_hash(tmp_path):
     """SMAC-4: Violations logged with file hash and timestamp"""
     proc = SMACPreprocessor(log_path=tmp_path / "smac.log")
